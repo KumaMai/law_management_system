@@ -56,9 +56,9 @@ docker-compose up -d
 - **phpMyAdmin:** http://localhost:8081
 
 ### 5. Login ทดสอบ
-| Email | Password | Role |
-|---|---|---|
-| admin@lawfirm.com | admin1234 | admin |
+|Username| Email | Password | Role |
+|---|---|---|---|
+|admin| admin@admin.com | admin1234 | admin |
 
 > หมายเหตุ: ต้องรอ MySQL init เสร็จก่อน ประมาณ 10-15 วินาทีหลัง docker up
 

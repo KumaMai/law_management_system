@@ -1,6 +1,70 @@
 # ระบบจัดการคดีความ (Law Case Management System)
 
+<<<<<<< HEAD
 > ระบบบริหารจัดการคดีความสำหรับสำนักงานกฎหมาย พัฒนาด้วย PHP + MySQL + Docker
+=======
+## โครงสร้างไฟล์
+
+```
+law-system/
+├── docker-compose.yml
+├── docker/
+│   ├── php/
+│   │   └── Dockerfile          # PHP 8.2-FPM + PDO MySQL
+│   ├── nginx/
+│   │   └── default.conf        # Nginx config
+│   └── mysql/
+│       └── init.sql            # Schema + Seed data
+└── src/
+    ├── index.php               # Redirect หน้าแรก
+    ├── config/
+    │   ├── db.php              # Database connection (PDO)
+    │   └── auth.php            # Session / Role helper
+    ├── includes/
+    │   ├── header.php          # Navbar + HTML head
+    │   └── footer.php          # HTML footer
+    ├── pages/
+    │   ├── login.php           # หน้าเข้าสู่ระบบ
+    │   ├── logout.php          # ออกจากระบบ
+    │   ├── dashboard.php       # หน้าหลัก (stats + เมนู)
+    │   ├── lawyers.php         # จัดการทนาย (admin)
+    │   ├── clients.php         # จัดการลูกความ (admin)
+    │   ├── case_requests.php   # คำขอว่าจ้าง
+    │   ├── contracts.php       # สัญญาว่าจ้าง
+    │   ├── filings.php         # การยื่นฟ้อง
+    │   ├── hearings.php        # นัดขึ้นศาล
+    │   └── my_cases.php        # คดีของฉัน (client)
+    └── assets/
+        └── css/
+            └── style.css       # CSS ทั้งหมด
+```
+
+## วิธีติดตั้งและรัน
+
+### 1. ติดตั้ง Docker Desktop
+https://www.docker.com/products/docker-desktop
+
+### 2. Clone หรือวางไฟล์โปรเจกต์
+```bash
+cd law-system
+```
+
+### 3. รัน Docker
+```bash
+docker-compose up -d
+```
+
+### 4. เปิดเว็บ
+- **เว็บหลัก:** http://localhost:8080
+- **phpMyAdmin:** http://localhost:8081
+
+### 5. Login ทดสอบ
+|Username| Email | Password | Role |
+|---|---|---|---|
+|admin| admin@admin.com | admin1234 | admin |
+
+> หมายเหตุ: ต้องรอ MySQL init เสร็จก่อน ประมาณ 10-15 วินาทีหลัง docker up
+>>>>>>> 565f1bd4481c97f4dec8cf121fb5f4df1e1e0b12
 
 ---
 

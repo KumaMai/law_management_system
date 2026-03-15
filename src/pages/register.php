@@ -1,7 +1,9 @@
 <?php
+// register.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 
 if (isLoggedIn()) {
     header('Location: /pages/dashboard.php');
@@ -12,6 +14,7 @@ $error   = '';
 $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $username  = trim($_POST['username'] ?? '');
     $email     = trim($_POST['email'] ?? '');
     $password  = $_POST['password'] ?? '';
@@ -61,7 +64,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             VALUES (?, ?, ?, ?, ?, 'active')
                         ")->execute([$username, $officeId, $roleId, $email, $hash]);
                     } catch(Exception $e) {
-                        // fallback ถ้า username column ยังไม่มี
                         $pdo->prepare("
                             INSERT INTO users (office_id, role_id, email, password_hash, status)
                             VALUES (?, ?, ?, ?, 'active')
@@ -99,111 +101,249 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title>สมัครสมาชิก</title>
     <link rel="stylesheet" href="/assets/css/style.css">
     <style>
+        /* ── reset ── */
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f2744 0%, #1a3a5c 50%, #2d5a8a 100%) !important;
+            font-family: 'Sarabun', sans-serif;
+        }
+
+        /* ── centerer ── */
         .register-wrap {
+            width: 100%;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 32px 16px;
         }
+
+        /* ── card ── */
         .register-box {
             background: #fff;
-            padding: 40px 36px;
-            border-radius: 10px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+            padding: 36px 32px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.35);
             width: 100%;
             max-width: 520px;
         }
-        .register-box h1 {
+
+        /* ── header ── */
+        .reg-logo { text-align: center; font-size: 2.2rem; margin-bottom: 6px; }
+        .reg-title {
             text-align: center;
             color: #1a3a5c;
-            margin-bottom: 6px;
             font-size: 1.4rem;
+            font-weight: 800;
+            margin: 0 0 4px;
         }
-        .register-box p {
+        .reg-sub {
             text-align: center;
-            color: #888;
-            margin-bottom: 24px;
-            font-size: 0.88rem;
+            color: #94a3b8;
+            font-size: .83rem;
+            margin: 0 0 24px;
         }
+
+        /* ── section label ── */
+        .sec-label {
+            font-weight: 700;
+            color: #1a3a5c;
+            font-size: .85rem;
+            margin: 0 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* ── form elements (override style.css) ── */
+        .form-group { margin-bottom: 14px; }
+        .form-group label {
+            display: block;
+            font-size: .78rem;
+            font-weight: 700;
+            color: #475569;
+            margin-bottom: 5px;
+        }
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 13px;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: .88rem;
+            background: #f8fafc;
+            color: #1e293b;
+            outline: none;
+            transition: border-color .18s, box-shadow .18s;
+            font-family: inherit;
+        }
+        .form-group input:focus,
+        .form-group textarea:focus {
+            border-color: #1a3a5c;
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(26,58,92,.1);
+        }
+        .form-group textarea { resize: vertical; min-height: 80px; }
+
+        /* ── 2-col grid ── */
         .form-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
         }
-        .divider {
+
+        /* ── divider ── */
+        .reg-divider {
             border: none;
-            border-top: 1px solid #eee;
+            border-top: 1px solid #e2e8f0;
             margin: 20px 0;
         }
+
+        /* ── submit btn ── */
+        .btn-register {
+            width: 100%;
+            padding: 13px;
+            background: linear-gradient(135deg, #1a3a5c, #2d5a8a);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-size: .95rem;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 6px;
+            letter-spacing: .3px;
+            transition: opacity .18s, transform .18s;
+            font-family: inherit;
+        }
+        .btn-register:hover {
+            opacity: .9;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(26,58,92,.4);
+        }
+
+        /* ── alerts ── */
+        .alert-error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            font-size: .84rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+        .alert-success {
+            background: #ecfdf5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 16px;
+            font-size: .87rem;
+            font-weight: 600;
+            text-align: center;
+            line-height: 1.6;
+        }
+        .alert-success a { color: #1a3a5c; font-weight: 700; }
+
+        /* ── footer link ── */
         .login-link {
             text-align: center;
-            margin-top: 16px;
-            font-size: 0.88rem;
-            color: #666;
+            margin-top: 18px;
+            font-size: .82rem;
+            color: #94a3b8;
         }
-        .login-link a { color: #1a3a5c; font-weight: bold; }
+        .login-link a { color: #1a3a5c; font-weight: 700; text-decoration: none; }
+        .login-link a:hover { text-decoration: underline; }
+
+        /* ── required star ── */
+        .req { color: #ef4444; }
+
+        /* ── hint text ── */
+        .hint { font-weight: 400; color: #94a3b8; font-size: .72rem; }
     </style>
 </head>
 <body>
 <div class="register-wrap">
     <div class="register-box">
-        <h1>⚖️ สมัครสมาชิก</h1>
-        <p>สำหรับลูกความที่ต้องการใช้บริการ</p>
+
+        <div class="reg-logo">⚖️</div>
+        <h1 class="reg-title">สมัครสมาชิก</h1>
+        <p class="reg-sub">สำหรับลูกความที่ต้องการใช้บริการ</p>
 
         <?php if ($error): ?>
-        <div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
+        <div class="alert-error">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" stroke="#991b1b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            <?= htmlspecialchars($error) ?>
+        </div>
         <?php endif; ?>
 
         <?php if ($success): ?>
-        <div class="alert alert-success">
-            <?= htmlspecialchars($success) ?>
-            <br><a href="/pages/login.php">→ คลิกที่นี่เพื่อเข้าสู่ระบบ</a>
+        <div class="alert-success">
+            ✅ <?= htmlspecialchars($success) ?><br>
+            <a href="/pages/login.php">→ คลิกที่นี่เพื่อเข้าสู่ระบบ</a>
         </div>
         <?php else: ?>
 
         <form method="POST" novalidate>
-            <!-- ข้อมูลบัญชี -->
-            <p style="font-weight:bold; color:#1a3a5c; margin-bottom:12px;">📋 ข้อมูลบัญชี</p>
+            <?= csrf_field() ?>
+
+            <!-- ── ข้อมูลบัญชี ── -->
+            <div class="sec-label">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" stroke="#1a3a5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                ข้อมูลบัญชี
+            </div>
 
             <div class="form-group">
-                <label>👤 Username <span style="color:red">*</span>
-                    <span style="font-weight:400;color:#94a3b8;font-size:.75rem;">(ใช้สำหรับ login — a-z, 0-9, _ เท่านั้น)</span>
+                <label>
+                    Username <span class="req">*</span>
+                    <span class="hint">(ใช้สำหรับ login — a-z, 0-9, _ เท่านั้น)</span>
                 </label>
                 <input type="text" name="username" placeholder="เช่น john_doe99"
                        value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
                        pattern="[a-zA-Z0-9_]{3,30}" maxlength="30" required autofocus>
             </div>
+
             <div class="form-group">
-                <label>📧 อีเมล <span style="color:red">*</span></label>
+                <label>อีเมล <span class="req">*</span></label>
                 <input type="email" name="email" placeholder="example@email.com"
                        value="<?= htmlspecialchars($_POST['email'] ?? '') ?>" required>
             </div>
 
             <div class="form-row">
                 <div class="form-group">
-                    <label>รหัสผ่าน <span style="color:red">*</span></label>
+                    <label>รหัสผ่าน <span class="req">*</span></label>
                     <input type="password" name="password" placeholder="อย่างน้อย 6 ตัว" required>
                 </div>
                 <div class="form-group">
-                    <label>ยืนยันรหัสผ่าน <span style="color:red">*</span></label>
+                    <label>ยืนยันรหัสผ่าน <span class="req">*</span></label>
                     <input type="password" name="confirm_password" placeholder="พิมพ์อีกครั้ง" required>
                 </div>
             </div>
 
-            <hr class="divider">
+            <hr class="reg-divider">
 
-            <!-- ข้อมูลส่วนตัว -->
-            <p style="font-weight:bold; color:#1a3a5c; margin-bottom:12px;">👤 ข้อมูลส่วนตัว</p>
+            <!-- ── ข้อมูลส่วนตัว ── -->
+            <div class="sec-label">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" stroke="#1a3a5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                ข้อมูลส่วนตัว
+            </div>
 
             <div class="form-row">
                 <div class="form-group">
-                    <label>ชื่อ <span style="color:red">*</span></label>
+                    <label>ชื่อ <span class="req">*</span></label>
                     <input type="text" name="fname" placeholder="ชื่อจริง"
                            value="<?= htmlspecialchars($_POST['fname'] ?? '') ?>" required>
                 </div>
                 <div class="form-group">
-                    <label>นามสกุล <span style="color:red">*</span></label>
+                    <label>นามสกุล <span class="req">*</span></label>
                     <input type="text" name="lname" placeholder="นามสกุล"
                            value="<?= htmlspecialchars($_POST['lname'] ?? '') ?>" required>
                 </div>
@@ -227,9 +367,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <textarea name="address" placeholder="บ้านเลขที่ ถนน ตำบล อำเภอ จังหวัด"><?= htmlspecialchars($_POST['address'] ?? '') ?></textarea>
             </div>
 
-            <button type="submit" class="btn btn-primary" style="width:100%; margin-top:8px;">
-                สมัครสมาชิก
-            </button>
+            <button type="submit" class="btn-register">สมัครสมาชิก →</button>
         </form>
 
         <?php endif; ?>
@@ -237,6 +375,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="login-link">
             มีบัญชีแล้ว? <a href="/pages/login.php">เข้าสู่ระบบ</a>
         </div>
+
     </div>
 </div>
 </body>

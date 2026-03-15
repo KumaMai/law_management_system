@@ -1,37 +1,76 @@
 <?php
+// ============================================================
+// แทนที่ไฟล์: src/pages/case_requests.php
+// ช่องโหว่ที่แก้:
+//   - Missing Authorization → เพิ่ม AND lawyer_id=? ใน UPDATE
+//   - CSRF                  → csrf_verify() + csrf_field()
+// ============================================================
+
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireLogin();
 
 $pdo      = getDB();
 $role     = $_SESSION['role'];
 $officeId = $_SESSION['office_id'];
 
-// Handle approve/reject actions (lawyer only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $role === 'lawyer') {
+
+    // ── ตรวจ CSRF ──
+    csrf_verify();
+
     $requestId = (int)($_POST['request_id'] ?? 0);
     $action    = $_POST['action'] ?? '';
 
+    // ── ดึง lawyer_id ของตัวเองก่อน ──
+    $lp = $pdo->prepare("SELECT lawyer_id FROM lawyer_profiles WHERE user_id=?");
+    $lp->execute([$_SESSION['user_id']]);
+    $lawyerId = $lp->fetchColumn();
+
     if ($action === 'approve') {
-        $pdo->prepare("UPDATE case_requests SET status='approved' WHERE request_id=?")
-            ->execute([$requestId]);
-        // Auto-create contract
-        $pdo->prepare("INSERT INTO contracts (request_id, contract_date, status, payment_status, contract_review_status) VALUES (?, CURDATE(), 'active', 'pending', 'pending_lawyer_review')")
-            ->execute([$requestId]);
+        // ── แก้ Missing Authorization: เพิ่ม AND lawyer_id=? ──
+        // ทำให้ทนายอนุมัติได้เฉพาะคำขอที่ส่งมาหาตัวเองเท่านั้น
+        $stmt = $pdo->prepare("
+            UPDATE case_requests
+            SET status = 'approved'
+            WHERE request_id = ?
+              AND lawyer_id  = ?
+              AND status     = 'pending'
+        ");
+        $stmt->execute([$requestId, $lawyerId]);
+
+        // ถ้า update สำเร็จ (affectedRows > 0) จึง insert contract
+        if ($stmt->rowCount() > 0) {
+            $pdo->prepare("
+                INSERT INTO contracts
+                    (request_id, contract_date, status, payment_status, contract_review_status)
+                VALUES (?, CURDATE(), 'active', 'pending', 'pending_lawyer_review')
+            ")->execute([$requestId]);
+        }
+
     } elseif ($action === 'reject') {
         $reason = trim($_POST['reject_reason'] ?? '');
-        $pdo->prepare("UPDATE case_requests SET status='rejected', reject_reason=? WHERE request_id=?")
-            ->execute([$reason, $requestId]);
+
+        // ── แก้ Missing Authorization: เพิ่ม AND lawyer_id=? ──
+        $pdo->prepare("
+            UPDATE case_requests
+            SET status = 'rejected', reject_reason = ?
+            WHERE request_id = ?
+              AND lawyer_id  = ?
+              AND status     = 'pending'
+        ")->execute([$reason, $requestId, $lawyerId]);
     }
+
     header('Location: /pages/case_requests.php');
     exit;
 }
 
-// Fetch requests
+// ── Fetch requests (เหมือนเดิม) ──
 if ($role === 'admin') {
     $stmt = $pdo->prepare("
-        SELECT cr.*, 
+        SELECT cr.*,
                CONCAT(cp.fname,' ',cp.lname) AS client_name,
                CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
         FROM case_requests cr
@@ -41,6 +80,7 @@ if ($role === 'admin') {
         ORDER BY cr.created_at DESC
     ");
     $stmt->execute([$officeId]);
+
 } elseif ($role === 'lawyer') {
     $lp = $pdo->prepare("SELECT lawyer_id FROM lawyer_profiles WHERE user_id=?");
     $lp->execute([$_SESSION['user_id']]);
@@ -56,6 +96,7 @@ if ($role === 'admin') {
         ORDER BY cr.created_at DESC
     ");
     $stmt->execute([$lawyerId]);
+
 } else {
     $cp = $pdo->prepare("SELECT client_id FROM client_profiles WHERE user_id=?");
     $cp->execute([$_SESSION['user_id']]);
@@ -77,18 +118,8 @@ $requests  = $stmt->fetchAll();
 $pageTitle = 'คำขอว่าจ้างทนาย';
 include '../includes/header.php';
 
-$badgeMap = [
-    'pending'  => 'badge-pending',
-    'approved' => 'badge-approved',
-    'rejected' => 'badge-rejected',
-    'expired'  => 'badge-expired',
-];
-$statusTH = [
-    'pending'  => 'รอดำเนินการ',
-    'approved' => 'อนุมัติแล้ว',
-    'rejected' => 'ปฏิเสธแล้ว',
-    'expired'  => 'หมดอายุ',
-];
+$badgeMap = ['pending'=>'badge-pending','approved'=>'badge-approved','rejected'=>'badge-rejected','expired'=>'badge-expired'];
+$statusTH = ['pending'=>'รอดำเนินการ','approved'=>'อนุมัติแล้ว','rejected'=>'ปฏิเสธแล้ว','expired'=>'หมดอายุ'];
 ?>
 
 <div class="card">
@@ -101,13 +132,8 @@ $statusTH = [
     <table>
         <thead>
             <tr>
-                <th>#</th>
-                <th>ลูกความ</th>
-                <th>ทนาย</th>
-                <th>รายละเอียด</th>
-                <th>วันที่ส่งคำขอ</th>
-                <th>วันหมดอายุ</th>
-                <th>สถานะ</th>
+                <th>#</th><th>ลูกความ</th><th>ทนาย</th><th>รายละเอียด</th>
+                <th>วันที่ส่งคำขอ</th><th>วันหมดอายุ</th><th>สถานะ</th>
                 <?php if ($role === 'lawyer'): ?><th>การดำเนินการ</th><?php endif; ?>
             </tr>
         </thead>
@@ -128,11 +154,13 @@ $statusTH = [
                 <?php if ($role === 'lawyer' && $r['status'] === 'pending'): ?>
                 <td>
                     <form method="POST" style="display:inline;">
+                        <?= csrf_field() ?>
                         <input type="hidden" name="request_id" value="<?= $r['request_id'] ?>">
                         <input type="hidden" name="action" value="approve">
                         <button class="btn btn-success btn-sm">✔ รับ</button>
                     </form>
                     <form method="POST" style="display:inline;" onsubmit="return promptReject(this)">
+                        <?= csrf_field() ?>
                         <input type="hidden" name="request_id" value="<?= $r['request_id'] ?>">
                         <input type="hidden" name="action" value="reject">
                         <input type="hidden" name="reject_reason" class="reject-reason" value="">

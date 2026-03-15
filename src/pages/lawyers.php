@@ -1,7 +1,9 @@
 <?php
+// lawyers.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireRole('admin');
 
 $pdo      = getDB();
@@ -11,6 +13,7 @@ $success  = '';
 
 // Add lawyer
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $email          = trim($_POST['email'] ?? '');
     $password       = $_POST['password'] ?? '';
     $fname          = trim($_POST['fname'] ?? '');
@@ -96,6 +99,7 @@ include '../includes/header.php';
     <?php if ($success): ?><div class="alert alert-success"><?= htmlspecialchars($success) ?></div><?php endif; ?>
 
     <form method="POST">
+        <?= csrf_field() ?>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
             <div class="form-group">
                 <label>ชื่อ *</label>

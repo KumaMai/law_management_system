@@ -1,7 +1,9 @@
 <?php
+// Verdicts.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -15,6 +17,7 @@ $success  = '';
 // Handle POST — บันทึก/แก้ไขคำพิพากษา (lawyer/admin เท่านั้น)
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])) {
+    csrf_verify();
     $action    = $_POST['action'] ?? '';
     $filingId  = (int)($_POST['filing_id'] ?? 0);
     $winner    = $_POST['winner'] ?? '';           // plaintiff / defendant
@@ -298,6 +301,7 @@ include '../includes/header.php';
         <div id="modal-case-info" style="background:#f8fafc; border-radius:6px; padding:10px 14px; font-size:0.85rem; color:#555; margin-bottom:18px;"></div>
 
         <form method="POST">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="add_verdict">
             <input type="hidden" name="filing_id" id="v-filing-id">
 

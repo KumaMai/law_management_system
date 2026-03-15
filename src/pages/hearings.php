@@ -1,7 +1,9 @@
 <?php
+// hearings.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -15,6 +17,7 @@ $success  = '';
 // Handle POST actions
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])) {
+    csrf_verify(); // ← แก้ช่องโหว่ CSRF
     $action = $_POST['action'] ?? '';
 
     // ---- ลบนัด ----
@@ -338,6 +341,7 @@ setInterval(updateCountdowns, 1000);
 <div class="card">
     <h2>➕ เพิ่มนัดขึ้นศาล</h2>
     <form method="POST">
+        <?= csrf_field() ?>
         <input type="hidden" name="action" value="add">
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
             <div class="form-group" style="grid-column:span 2;">
@@ -460,6 +464,7 @@ setInterval(updateCountdowns, 1000);
                     <?php endif; ?>
                     <!-- ปุ่มลบ -->
                     <form method="POST" onsubmit="return confirm('ยืนยันการลบนัดนี้?')" style="display:inline;">
+                        <?= csrf_field() ?>
                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="hearing_id" value="<?= $h['hearing_id'] ?>">
                         <button type="submit" class="btn btn-sm" style="background:#e74c3c;color:#fff;">🗑️</button>
@@ -485,6 +490,7 @@ setInterval(updateCountdowns, 1000);
         </div>
 
         <form method="POST">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="update_status">
             <input type="hidden" name="hearing_id" id="modal-hearing-id">
 

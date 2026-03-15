@@ -1,7 +1,10 @@
 <?php
+// payments.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
+require_once '../config/file_upload_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -13,10 +16,18 @@ $userId   = $_SESSION['user_id'];
 // Handle: ทนายอัปโหลด QR Code
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_qr') {
+    csrf_verify();
     if ($role !== 'lawyer') { header('Location: /pages/payments.php?error=permission'); exit; }
     if (!empty($_FILES['qr_file']['tmp_name']) && $_FILES['qr_file']['error'] === 0) {
         $ext = strtolower(pathinfo($_FILES['qr_file']['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['jpg','jpeg','png']) && $_FILES['qr_file']['size'] <= 5*1024*1024) {
+ 
+        // ── แก้ File Upload: ตรวจ MIME type จริง ──
+        $finfo    = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $_FILES['qr_file']['tmp_name']);
+        finfo_close($finfo);
+        $allowedMime = ['image/jpeg', 'image/png'];
+ 
+        if (in_array($mimeType, $allowedMime) && $_FILES['qr_file']['size'] <= 5*1024*1024) {
             $saveDir = '/var/www/html/uploads/qr_codes/';
             if (!is_dir($saveDir)) mkdir($saveDir, 0755, true);
             $newName = 'qr_lawyer_' . $userId . '_' . time() . '.' . $ext;
@@ -31,18 +42,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
     header('Location: /pages/payments.php' . ($rid ? '?contract_id='.$rid : '') . '&qr_updated=1');
     exit;
 }
-
+ 
 // ==============================
 // Handle: ลูกความส่งหลักฐานชำระ
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay') {
+    csrf_verify();
     $contractId      = (int)$_POST['contract_id'];
     $amount          = (float)$_POST['amount'];
     $method          = $_POST['payment_method'] ?? 'transfer';
     $paymentDate     = $_POST['payment_date'] ?? date('Y-m-d');
     $note            = trim($_POST['note'] ?? '');
     $installmentNote = trim($_POST['installment_note'] ?? '');
-
+ 
     $chk = $pdo->prepare("
         SELECT c.contract_id FROM contracts c
         JOIN case_requests cr ON c.request_id = cr.request_id
@@ -51,78 +63,170 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay')
     ");
     $chk->execute([$contractId, $userId, $officeId]);
     if (!$chk->fetch()) { header('Location: /pages/payments.php?error=permission'); exit; }
-
+ 
     $slipFile = null;
     if (!empty($_FILES['slip_file']['tmp_name']) && $_FILES['slip_file']['error'] === 0) {
         $ext = strtolower(pathinfo($_FILES['slip_file']['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['jpg','jpeg','png','pdf']) && $_FILES['slip_file']['size'] <= 10*1024*1024) {
+ 
+        // ── แก้ File Upload: ตรวจ MIME type จริง ──
+        $finfo    = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $_FILES['slip_file']['tmp_name']);
+        finfo_close($finfo);
+        $allowedMime = ['image/jpeg', 'image/png', 'application/pdf'];
+ 
+        if (in_array($mimeType, $allowedMime) && $_FILES['slip_file']['size'] <= 10*1024*1024) {
             $saveDir = '/var/www/html/uploads/payment_slips/';
             if (!is_dir($saveDir)) mkdir($saveDir, 0755, true);
             $slipFile = 'slip_' . $contractId . '_' . time() . '_' . uniqid() . '.' . $ext;
             move_uploaded_file($_FILES['slip_file']['tmp_name'], $saveDir . $slipFile);
         }
     }
-
+ 
     $pdo->prepare("
-        INSERT INTO payments (contract_id, amount, payment_method, payment_date, slip_file, note, installment_note, status, paid_by)
+        INSERT INTO payments
+            (contract_id, amount, payment_method, payment_date, slip_file, note, installment_note, status, paid_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
     ")->execute([$contractId, $amount, $method, $paymentDate, $slipFile, $note, $installmentNote, $userId]);
-
+ 
     header('Location: /pages/payments.php?contract_id='.$contractId.'&paid=1');
     exit;
 }
-
+ 
 // ==============================
 // Handle: ทนาย/admin ยืนยัน/ปฏิเสธ
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['confirm','reject'])) {
+    csrf_verify();
     $paymentId  = (int)$_POST['payment_id'];
     $contractId = (int)$_POST['contract_id'];
     $newStatus  = ($_POST['action'] === 'confirm') ? 'confirmed' : 'rejected';
-    if (!in_array($role, ['admin','lawyer'])) { header('Location: /pages/payments.php?error=permission'); exit; }
-
-    $pdo->prepare("UPDATE payments SET status=?, confirmed_by=?, confirmed_at=NOW() WHERE payment_id=?")
-        ->execute([$newStatus, $userId, $paymentId]);
-
-    if ($newStatus === 'confirmed') {
-        $feeRow = $pdo->prepare("SELECT fee_amount FROM contracts WHERE contract_id=?");
-        $feeRow->execute([$contractId]);
-        $feeAmount = (float)($feeRow->fetchColumn() ?? 0);
-        $paidRow   = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM payments WHERE contract_id=? AND status='confirmed'");
-        $paidRow->execute([$contractId]);
-        $totalPaid = (float)$paidRow->fetchColumn();
-        $ps = ($feeAmount > 0 && $totalPaid >= $feeAmount) ? 'paid' : 'partial';
-        $pdo->prepare("UPDATE contracts SET payment_status=? WHERE contract_id=?")->execute([$ps, $contractId]);
+ 
+    if (!in_array($role, ['admin','lawyer'])) {
+        header('Location: /pages/payments.php?error=permission'); exit;
     }
-    header('Location: /pages/payments.php?contract_id='.$contractId.'&updated=1'); exit;
+ 
+    // ── แก้ IDOR: ตรวจว่า payment_id เป็นของ contract_id นั้นจริง ──
+    // และ contract_id นั้นเป็นของ lawyer คนนี้จริง
+    $verify = $pdo->prepare("
+        SELECT p.payment_id
+        FROM payments p
+        JOIN contracts c  ON p.contract_id  = c.contract_id
+        JOIN case_requests cr ON c.request_id = cr.request_id
+        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
+        WHERE p.payment_id  = ?
+          AND p.contract_id = ?
+          AND cr.office_id  = ?
+    ");
+    $verify->execute([$paymentId, $contractId, $officeId]);
+ 
+    if (!$verify->fetch()) {
+        header('Location: /pages/payments.php?error=permission'); exit;
+    }
+ 
+    // ── แก้ Race Condition: ใช้ Transaction ──
+    try {
+        $pdo->beginTransaction();
+ 
+        $pdo->prepare("
+            UPDATE payments
+            SET status=?, confirmed_by=?, confirmed_at=NOW()
+            WHERE payment_id=?
+        ")->execute([$newStatus, $userId, $paymentId]);
+ 
+        if ($newStatus === 'confirmed') {
+            // ── ใช้ SELECT ... FOR UPDATE เพื่อล็อก row ป้องกัน race condition ──
+            $feeRow = $pdo->prepare("
+                SELECT fee_amount FROM contracts WHERE contract_id=? FOR UPDATE
+            ");
+            $feeRow->execute([$contractId]);
+            $feeAmount = (float)($feeRow->fetchColumn() ?? 0);
+ 
+            $paidRow = $pdo->prepare("
+                SELECT COALESCE(SUM(amount),0)
+                FROM payments
+                WHERE contract_id=? AND status='confirmed'
+            ");
+            $paidRow->execute([$contractId]);
+            $totalPaid = (float)$paidRow->fetchColumn();
+ 
+            $ps = ($feeAmount > 0 && $totalPaid >= $feeAmount) ? 'paid' : 'partial';
+            $pdo->prepare("UPDATE contracts SET payment_status=? WHERE contract_id=?")
+                ->execute([$ps, $contractId]);
+        }
+ 
+        $pdo->commit();
+ 
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        error_log('Payment confirm error: ' . $e->getMessage());
+        header('Location: /pages/payments.php?contract_id='.$contractId.'&error=system');
+        exit;
+    }
+ 
+    header('Location: /pages/payments.php?contract_id='.$contractId.'&updated=1');
+    exit;
 }
-
+ 
 // ==============================
 // Handle: ทนายบันทึกรับเงินสดเอง
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_cash') {
-    if (!in_array($role, ['admin','lawyer'])) { header('Location: /pages/payments.php?error=permission'); exit; }
+    csrf_verify();
+    if (!in_array($role, ['admin','lawyer'])) {
+        header('Location: /pages/payments.php?error=permission'); exit;
+    }
     $contractId      = (int)$_POST['contract_id'];
     $amount          = (float)$_POST['cash_amount'];
     $paymentDate     = $_POST['cash_date'] ?? date('Y-m-d');
     $note            = trim($_POST['cash_note'] ?? '');
     $installmentNote = trim($_POST['cash_installment'] ?? '');
-
-    $pdo->prepare("
-        INSERT INTO payments (contract_id, amount, payment_method, payment_date, note, installment_note, status, paid_by, confirmed_by, confirmed_at)
-        VALUES (?, ?, 'cash', ?, ?, ?, 'confirmed', ?, ?, NOW())
-    ")->execute([$contractId, $amount, $paymentDate, $note, $installmentNote, $userId, $userId]);
-
-    $feeRow = $pdo->prepare("SELECT fee_amount FROM contracts WHERE contract_id=?");
-    $feeRow->execute([$contractId]);
-    $feeAmount = (float)($feeRow->fetchColumn() ?? 0);
-    $paidRow   = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM payments WHERE contract_id=? AND status='confirmed'");
-    $paidRow->execute([$contractId]);
-    $totalPaid = (float)$paidRow->fetchColumn();
-    $ps = ($feeAmount > 0 && $totalPaid >= $feeAmount) ? 'paid' : 'partial';
-    $pdo->prepare("UPDATE contracts SET payment_status=? WHERE contract_id=?")->execute([$ps, $contractId]);
-
-    header('Location: /pages/payments.php?contract_id='.$contractId.'&cash_added=1'); exit;
+ 
+    // ── ตรวจว่า contract เป็นของ office นี้ ──
+    $chkC = $pdo->prepare("
+        SELECT c.contract_id FROM contracts c
+        JOIN case_requests cr ON c.request_id=cr.request_id
+        WHERE c.contract_id=? AND cr.office_id=?
+    ");
+    $chkC->execute([$contractId, $officeId]);
+    if (!$chkC->fetch()) {
+        header('Location: /pages/payments.php?error=permission'); exit;
+    }
+ 
+    // ── แก้ Race Condition: ใช้ Transaction ──
+    try {
+        $pdo->beginTransaction();
+ 
+        $pdo->prepare("
+            INSERT INTO payments
+                (contract_id, amount, payment_method, payment_date, note, installment_note, status, paid_by, confirmed_by, confirmed_at)
+            VALUES (?, ?, 'cash', ?, ?, ?, 'confirmed', ?, ?, NOW())
+        ")->execute([$contractId, $amount, $paymentDate, $note, $installmentNote, $userId, $userId]);
+ 
+        $feeRow = $pdo->prepare("SELECT fee_amount FROM contracts WHERE contract_id=? FOR UPDATE");
+        $feeRow->execute([$contractId]);
+        $feeAmount = (float)($feeRow->fetchColumn() ?? 0);
+ 
+        $paidRow = $pdo->prepare("
+            SELECT COALESCE(SUM(amount),0) FROM payments WHERE contract_id=? AND status='confirmed'
+        ");
+        $paidRow->execute([$contractId]);
+        $totalPaid = (float)$paidRow->fetchColumn();
+ 
+        $ps = ($feeAmount > 0 && $totalPaid >= $feeAmount) ? 'paid' : 'partial';
+        $pdo->prepare("UPDATE contracts SET payment_status=? WHERE contract_id=?")
+            ->execute([$ps, $contractId]);
+ 
+        $pdo->commit();
+ 
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        error_log('Cash payment error: ' . $e->getMessage());
+        header('Location: /pages/payments.php?contract_id='.$contractId.'&error=system');
+        exit;
+    }
+ 
+    header('Location: /pages/payments.php?contract_id='.$contractId.'&cash_added=1');
+    exit;
 }
 
 // ==============================
@@ -403,6 +507,7 @@ include '../includes/header.php';
         <div class="qr-upload-box" style="min-width:190px;">
           <div style="font-size:.8rem;font-weight:700;color:var(--navy);margin-bottom:7px;"><?= $myQr ? '🔄 เปลี่ยน QR Code' : '⬆️ อัปโหลด QR Code' ?></div>
           <form method="POST" enctype="multipart/form-data">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="upload_qr">
             <input type="hidden" name="contract_id" value="<?= $selectedId ?>">
             <input type="file" name="qr_file" accept=".jpg,.jpeg,.png" required
@@ -442,6 +547,7 @@ include '../includes/header.php';
       </div>
       <?php endif; ?>
       <form method="POST" enctype="multipart/form-data">
+        <?= csrf_field() ?>
         <input type="hidden" name="action" value="pay">
         <input type="hidden" name="contract_id" value="<?= $selectedId ?>">
         <div class="pfz-grid">
@@ -491,6 +597,7 @@ include '../includes/header.php';
     <div class="cash-form">
       <div style="font-weight:700;color:#92400e;font-size:.9rem;margin-bottom:11px;">💵 บันทึกรับเงินสด — ทนายยืนยันเอง</div>
       <form method="POST">
+        <?= csrf_field() ?>
         <input type="hidden" name="action" value="add_cash">
         <input type="hidden" name="contract_id" value="<?= $selectedId ?>">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
@@ -572,12 +679,14 @@ include '../includes/header.php';
           <?php endif; ?>
           <?php if (in_array($role,['admin','lawyer']) && $p['status']==='pending'): ?>
           <form method="POST" style="margin:0;display:inline;">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="confirm">
             <input type="hidden" name="payment_id" value="<?= $p['payment_id'] ?>">
             <input type="hidden" name="contract_id" value="<?= $selectedId ?>">
             <button type="submit" class="btn-sm btn-confirm" onclick="return confirm('ยืนยันการชำระเงินนี้?')">✅ ยืนยัน</button>
           </form>
           <form method="POST" style="margin:0;display:inline;">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="reject">
             <input type="hidden" name="payment_id" value="<?= $p['payment_id'] ?>">
             <input type="hidden" name="contract_id" value="<?= $selectedId ?>">

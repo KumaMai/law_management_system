@@ -1,7 +1,9 @@
 <?php
+// send_request.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireLogin();
 
 if ($_SESSION['role'] !== 'client') {
@@ -25,6 +27,7 @@ if (!$clientId) {
 
 // Handle POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $lawyerId  = (int)($_POST['lawyer_id'] ?? 0);
     $detail    = trim($_POST['detail'] ?? '');
 
@@ -115,6 +118,7 @@ $statusTH = [
     <?php else: ?>
 
     <form method="POST">
+        <?= csrf_field() ?>
         <!-- เลือกทนาย -->
         <div class="form-group">
             <label>เลือกทนายที่ต้องการ <span style="color:red">*</span></label>

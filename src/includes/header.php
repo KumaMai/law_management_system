@@ -179,7 +179,7 @@ $_sb_cur = basename($_SERVER['PHP_SELF']);
         </button>
         <!-- Dropdown (opens upward) -->
         <div class="sb-profile-dd" id="sbProfileDD">
-            <a href="/pages/dashboard.php">👤 โปรไฟล์ของฉัน</a>
+            <a href="/pages/profile.php">👤 โปรไฟล์ของฉัน</a>
             <?php if ($_SESSION['role'] !== 'admin'): ?>
             <button type="button" onclick="openEditProfileFromSidebar()">✏️ แก้ไขข้อมูลส่วนตัว</button>
             <?php endif; ?>
@@ -259,8 +259,8 @@ function toggleMobileSidebar() {
 function openEditProfileFromSidebar() {
     var dd = document.getElementById('sbProfileDD');
     if (dd) dd.classList.remove('show');
-    if (window.location.pathname.includes('dashboard.php')) {
-        var role = <?= json_encode($_SESSION['role'] ?? '') ?>;
+    var role = <?= json_encode($_SESSION['role'] ?? '') ?>;
+    if (window.location.pathname.includes('dashboard.php') || window.location.pathname.includes('profile.php')) {
         if (role === 'lawyer' && typeof openModal==='function') openModal();
         else if (role === 'client' && typeof openClientModal==='function') openClientModal();
     } else {
@@ -269,7 +269,6 @@ function openEditProfileFromSidebar() {
 }
 
 // apply state on load
-// เรียกทันทีเพื่อกัน layout shift
 applySidebarState();
 document.addEventListener('DOMContentLoaded', applySidebarState);
 window.addEventListener('load', applySidebarState);

@@ -1,7 +1,9 @@
 <?php
+// contracts.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -15,6 +17,7 @@ $success  = '';
 // Handle POST actions
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $contractId = (int)($_POST['contract_id'] ?? 0);
     $action     = $_POST['action'] ?? '';
 
@@ -533,6 +536,7 @@ include '../includes/header.php';
     <div class="modal-box">
         <h3>✅ ยืนยันรับสัญญา</h3>
         <form method="POST">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="lawyer_accept">
             <input type="hidden" name="contract_id" id="accept-id">
             <div class="form-group">
@@ -557,6 +561,7 @@ include '../includes/header.php';
     <div class="modal-box">
         <h3>🔄 ตีกลับ / เสนอเงื่อนไขใหม่</h3>
         <form method="POST">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="request_revision">
             <input type="hidden" name="contract_id" id="rev-id">
             <div class="form-group">
@@ -585,6 +590,7 @@ include '../includes/header.php';
             ⚠️ การปฏิเสธสัญญาจะยุติการดำเนินคดีนี้ ลูกความจะได้รับแจ้งและสามารถหาทนายใหม่ได้
         </div>
         <form method="POST">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="lawyer_reject">
             <input type="hidden" name="contract_id" id="rej-id">
             <div class="form-group">
@@ -606,6 +612,7 @@ include '../includes/header.php';
         <h3>🔒 ยืนยันสัญญาสุดท้าย</h3>
         <p style="color:#555; font-size:0.9rem; margin-bottom:16px;">ลูกความยอมรับเงื่อนไขแล้ว กรุณายืนยันเพื่อปิดการต่อรอง</p>
         <form method="POST">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="finalize">
             <input type="hidden" name="contract_id" id="fin-id">
             <div class="form-group">
@@ -627,6 +634,7 @@ include '../includes/header.php';
         <h3 id="client-title"></h3>
         <div id="client-accept-info" style="display:none; background:#d1e7dd; padding:12px; border-radius:6px; color:#0f5132; margin-bottom:12px; font-size:0.9rem;"></div>
         <form method="POST">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" id="client-action">
             <input type="hidden" name="contract_id" id="client-id">
             <div class="form-group" id="client-msg-group" style="display:none;">

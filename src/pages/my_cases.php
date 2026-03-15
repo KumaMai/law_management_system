@@ -1,7 +1,9 @@
 <?php
+// my_cases.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireLogin();
 
 $pdo    = getDB();
@@ -22,6 +24,7 @@ if (!$clientId) {
 // Handle negotiation response
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_verify();
     $contractId = (int)($_POST['contract_id'] ?? 0);
     $action     = $_POST['action'] ?? '';
 
@@ -398,6 +401,7 @@ $negLabel = [
         <h3 id="reply-title"></h3>
         <div id="reply-accept-info" style="display:none; background:#d1e7dd; border-radius:6px; padding:12px; margin-bottom:14px; font-size:0.9rem; color:#0f5132;"></div>
         <form method="POST">
+            <?= csrf_field() ?>
             <input type="hidden" name="contract_id" id="reply-contract-id">
             <input type="hidden" name="action" id="reply-action">
             <div class="form-group" id="reply-msg-group" style="display:none;">

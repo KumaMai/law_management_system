@@ -1,7 +1,9 @@
 <?php
+// case_summary.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -15,6 +17,7 @@ $success  = '';
 // สร้าง PDF
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'generate_pdf') {
+    csrf_verify();
     $requestId  = (int)$_POST['request_id'];
     $pdfAction  = $_POST['pdf_action'] ?? 'view';
 
@@ -480,6 +483,7 @@ h2{color:#1a3a5c;font-size:26px;}p{color:#555;font-size:16px;}</style></head>
 // Handle DELETE PDF
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_pdf') {
+    csrf_verify();
     $delFile    = basename($_POST['filename'] ?? '');
     $delReqId   = (int)($_POST['request_id'] ?? 0);
     $saveDir    = '/var/www/html/uploads/summaries/';
@@ -798,6 +802,7 @@ include '../includes/header.php';
         <div style="font-weight:700;color:#1a3a5c;margin-bottom:14px;font-size:1rem;">📥 ส่งออกสำนวนคดีเป็น PDF</div>
 
         <form method="POST" enctype="multipart/form-data">
+          <?= csrf_field() ?>
           <input type="hidden" name="action" value="generate_pdf">
           <input type="hidden" name="request_id" value="<?= $selectedId ?>">
 
@@ -905,6 +910,7 @@ include '../includes/header.php';
             <span>⬇</span><span>โหลด</span>
           </a>
           <form method="POST" onsubmit="return confirm('ยืนยันลบไฟล์ <?= $fname ?> ?')" style="margin:0;">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="delete_pdf">
             <input type="hidden" name="filename" value="<?= $fname ?>">
             <input type="hidden" name="request_id" value="<?= $selectedId ?>">

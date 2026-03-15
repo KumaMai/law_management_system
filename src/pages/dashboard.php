@@ -1,7 +1,9 @@
 <?php
+// dashboard.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -14,6 +16,7 @@ $userId   = $_SESSION['user_id'];
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_profile') {
     if ($role !== 'lawyer') { header('Location: /pages/dashboard.php'); exit; }
+    csrf_verify();
 
     $fname          = trim($_POST['fname'] ?? '');
     $lname          = trim($_POST['lname'] ?? '');
@@ -55,6 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'update_client') {
     if ($role !== 'client') { header('Location: /pages/dashboard.php'); exit; }
+    csrf_verify();
 
     $cpRow = $pdo->prepare("SELECT client_id, citizen_id FROM client_profiles WHERE user_id=?");
     $cpRow->execute([$userId]);
@@ -106,6 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'review_profile_req') {
     if ($role !== 'admin') { header('Location: /pages/dashboard.php'); exit; }
+    csrf_verify();
 
     $reqId    = (int)$_POST['req_id'];
     $decision = $_POST['decision'] === 'approved' ? 'approved' : 'rejected';
@@ -144,6 +149,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'revie
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_ann') {
     if (!in_array($role, ['admin','lawyer'])) { header('Location: /pages/dashboard.php'); exit; }
+    csrf_verify();
     $title = trim($_POST['ann_title'] ?? '');
     $body  = trim($_POST['ann_body']  ?? '');
     $pin   = isset($_POST['ann_pin']) ? 1 : 0;
@@ -157,6 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_a
 // Handle: ลบประกาศ
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'del_ann') {
     if (!in_array($role, ['admin','lawyer'])) { header('Location: /pages/dashboard.php'); exit; }
+    csrf_verify();
     $pdo->prepare("DELETE FROM announcements WHERE ann_id=? AND office_id=?")->execute([(int)$_POST['ann_id'], $officeId]);
     header('Location: /pages/dashboard.php'); exit;
 }
@@ -166,6 +173,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'del_a
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'review') {
     if ($role !== 'client') { header('Location: /pages/dashboard.php'); exit; }
+    csrf_verify();
     $lawyerId = (int)$_POST['lawyer_id'];
     $rating   = max(1, min(5, (int)$_POST['rating']));
     $comment  = trim($_POST['comment'] ?? '');
@@ -652,6 +660,7 @@ include '../includes/header.php';
           </div>
           <?php if (in_array($role,['admin','lawyer'])): ?>
           <form method="POST" style="margin:0;" onsubmit="return confirm('ลบประกาศนี้?')">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="del_ann">
             <input type="hidden" name="ann_id"  value="<?= $a['ann_id'] ?>">
             <button type="submit" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.8rem;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='#fee2e2';this.style.color='#dc2626'" onmouseout="this.style.background='none';this.style.color='var(--muted)'">🗑</button>
@@ -665,6 +674,7 @@ include '../includes/header.php';
       <div class="ann-form">
         <div style="font-weight:700;color:var(--navy);font-size:.83rem;margin-bottom:7px;">➕ เพิ่มประกาศใหม่</div>
         <form method="POST">
+          <?= csrf_field() ?>
           <input type="hidden" name="action" value="add_ann">
           <input type="text"  name="ann_title" class="af-input" placeholder="หัวข้อประกาศ *" required>
           <textarea           name="ann_body"  class="af-ta"   placeholder="รายละเอียด (ถ้ามี)..."></textarea>
@@ -699,6 +709,7 @@ include '../includes/header.php';
           </div>
         </div>
         <form method="POST">
+          <?= csrf_field() ?>
           <input type="hidden" name="action"    value="review">
           <input type="hidden" name="lawyer_id" value="<?= $lw['lawyer_id'] ?>">
           <div style="margin-bottom:8px;">
@@ -758,6 +769,7 @@ include '../includes/header.php';
   <div class="modal-box" onclick="event.stopPropagation()">
     <div class="m-title">✏️ แก้ไขข้อมูลส่วนตัว</div>
     <form method="POST" enctype="multipart/form-data">
+      <?= csrf_field() ?>
       <input type="hidden" name="action" value="update_profile">
       <div style="margin-bottom:10px;">
         <label class="fl">📷 รูปโปรไฟล์ (JPG/PNG สูงสุด 5MB)</label>
@@ -815,6 +827,7 @@ include '../includes/header.php';
       </div>
       <?php endif; ?>
       <form method="POST" enctype="multipart/form-data" id="formPhoto">
+        <?= csrf_field() ?>
         <input type="hidden" name="action" value="update_client">
         <label class="fl">📷 เลือกรูปใหม่ (JPG/PNG สูงสุด 5MB)</label>
         <input type="file" name="client_photo" id="clientPhotoFile" accept=".jpg,.jpeg,.png"
@@ -846,6 +859,7 @@ include '../includes/header.php';
       <?php endif; ?>
 
       <form method="POST" id="formInfo">
+        <?= csrf_field() ?>
         <input type="hidden" name="action" value="update_client">
         <div class="fg">
           <div>
@@ -950,6 +964,7 @@ include '../includes/header.php';
       <?php endif; ?>
     </table>
     <form method="POST">
+      <?= csrf_field() ?>
       <input type="hidden" name="action"  value="review_profile_req">
       <input type="hidden" name="req_id"  value="<?= $req['req_id'] ?>">
       <div style="margin-bottom:10px;">

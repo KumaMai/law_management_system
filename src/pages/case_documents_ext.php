@@ -1,7 +1,9 @@
 <?php
+// case_documents_ext.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -13,6 +15,7 @@ $userId   = $_SESSION['user_id'];
 // Handle UPLOAD
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload') {
+    csrf_verify();
     $requestId = (int)($_POST['request_id'] ?? 0);
     $label     = trim($_POST['doc_label'] ?? '');
     $docType   = $_POST['doc_type'] ?? 'other';
@@ -67,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
 // Handle DELETE
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete') {
+    csrf_verify();
     $docId    = (int)$_POST['doc_id'];
     $reqId    = (int)$_POST['request_id'];
 
@@ -580,6 +584,7 @@ $errMap = [
         อัปโหลดเอกสารใหม่
       </div>
       <form method="POST" enctype="multipart/form-data" id="uploadForm">
+        <?= csrf_field() ?>
         <input type="hidden" name="action" value="upload">
         <input type="hidden" name="request_id" value="<?= $selectedId ?>">
         <div class="upload-grid">
@@ -695,6 +700,7 @@ $errMap = [
             <a href="/uploads/case_docs/<?= urlencode($doc['file_path']) ?>" download="<?= htmlspecialchars($doc['file_name']) ?>"
                class="btn-act btn-dl">⬇ โหลด</a>
             <form method="POST" onsubmit="return confirm('ลบเอกสาร \'<?= addslashes($doc['doc_label'] ?: $doc['file_name']) ?>\' ?')" style="margin:0;">
+              <?= csrf_field() ?>
               <input type="hidden" name="action" value="delete">
               <input type="hidden" name="doc_id" value="<?= $doc['doc_id'] ?>">
               <input type="hidden" name="request_id" value="<?= $selectedId ?>">

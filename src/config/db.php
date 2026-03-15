@@ -1,4 +1,5 @@
 <?php
+// db.php
 define('DB_HOST', 'law_db');
 define('DB_NAME', 'law_system');
 define('DB_USER', 'law_user');

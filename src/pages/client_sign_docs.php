@@ -1,7 +1,10 @@
 <?php
+// client_sign_docs.php
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
+require_once '../config/file_upload_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -31,6 +34,7 @@ if ($role === 'client') {
 // Handle: ทนาย/admin อัปโหลดเอกสาร
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_doc') {
+    csrf_verify();
     if (!in_array($role, ['admin','lawyer'])) { header('Location: /pages/client_sign_docs.php'); exit; }
 
     $requestId  = (int)$_POST['request_id'];
@@ -84,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'acknowledge') {
     if ($role !== 'client') { header('Location: /pages/client_sign_docs.php'); exit; }
+    csrf_verify();
 
     $docId = (int)$_POST['doc_id'];
     $note  = trim($_POST['client_note'] ?? '');
@@ -107,6 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ackno
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'reject_doc') {
     if ($role !== 'client') { header('Location: /pages/client_sign_docs.php'); exit; }
+    csrf_verify();
 
     $docId = (int)$_POST['doc_id'];
     $note  = trim($_POST['client_note'] ?? '');
@@ -128,6 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'rejec
 // Handle: ลูกความส่ง PDF ที่เซ็นแล้วกลับ
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_signed') {
+    csrf_verify();
     if ($role !== 'client') { header('Location: /pages/client_sign_docs.php'); exit; }
 
     $docId = (int)$_POST['doc_id'];
@@ -170,6 +177,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
 // Handle: ลบเอกสาร (ทนาย/admin)
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_doc') {
+    csrf_verify();
     if (!in_array($role, ['admin','lawyer'])) { header('Location: /pages/client_sign_docs.php'); exit; }
 
     $docId = (int)$_POST['doc_id'];
@@ -188,6 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'remind') {
     if (!in_array($role, ['admin','lawyer'])) { header('Location: /pages/client_sign_docs.php'); exit; }
+    csrf_verify();
     $docId = (int)$_POST['doc_id'];
     try {
         $pdo->prepare("UPDATE client_sign_docs SET last_remind_at=NOW() WHERE doc_id=? AND office_id=?")
@@ -201,6 +210,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'remin
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_lawyer_note') {
     if (!in_array($role, ['admin','lawyer'])) { header('Location: /pages/client_sign_docs.php'); exit; }
+    csrf_verify();
     $docId = (int)$_POST['doc_id'];
     $note  = trim($_POST['lawyer_note'] ?? '');
     try {
@@ -506,6 +516,7 @@ if ($_toast) {
       </div>
       <div id="uploadForm" style="display:none;padding:18px;">
         <form method="POST" enctype="multipart/form-data">
+          <?= csrf_field() ?>
           <input type="hidden" name="action" value="upload_doc">
           <div class="fg2">
             <div style="grid-column:1/-1;">
@@ -635,6 +646,7 @@ if ($_toast) {
              class="btn btn-navy btn-sm">⬇ ดาวน์โหลด</a>
           <?php if (in_array($role,['admin','lawyer']) && $doc['status']==='pending'): ?>
           <form method="POST" style="margin:0;" onsubmit="return confirm('ส่งแจ้งเตือนซ้ำถึงลูกความ?')">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="remind">
             <input type="hidden" name="doc_id"  value="<?= $doc['doc_id'] ?>">
             <button type="submit" class="btn btn-sm" style="background:#d97706;color:#fff;">🔔 Remind</button>
@@ -646,6 +658,7 @@ if ($_toast) {
             📝 Note
           </button>
           <form method="POST" style="margin:0;" onsubmit="return confirm('ลบเอกสารนี้?')">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="delete_doc">
             <input type="hidden" name="doc_id"  value="<?= $doc['doc_id'] ?>">
             <button type="submit" class="btn btn-red btn-sm">🗑</button>
@@ -796,6 +809,7 @@ if ($_toast) {
       กรุณาดาวน์โหลด PDF เซ็นชื่อ แล้วนำส่งทนายตามวิธีที่ตกลงกันไว้ กดปุ่มนี้เพื่อยืนยันว่าคุณรับทราบและดำเนินการแล้ว
     </div>
     <form method="POST">
+      <?= csrf_field() ?>
       <input type="hidden" name="action" value="acknowledge">
       <input type="hidden" name="doc_id" id="ackDocId">
       <label class="fl">💬 หมายเหตุ (ถ้ามี)</label>
@@ -817,6 +831,7 @@ if ($_toast) {
       กรุณาระบุเหตุผลที่ไม่สามารถดำเนินการกับเอกสารนี้ได้
     </div>
     <form method="POST">
+      <?= csrf_field() ?>
       <input type="hidden" name="action" value="reject_doc">
       <input type="hidden" name="doc_id" id="rejectDocId">
       <label class="fl">💬 เหตุผล *</label>
@@ -900,6 +915,7 @@ function openNoteModal(docId, currentNote) {
       บันทึกสิ่งที่ทำไปแล้ว เช่น "โทรแจ้งแล้ว 13/03", "นัดรับเอกสารพรุ่งนี้" ฯลฯ
     </div>
     <form method="POST">
+      <?= csrf_field() ?>
       <input type="hidden" name="action" value="add_lawyer_note">
       <input type="hidden" name="doc_id" id="noteDocId">
       <label class="fl">📝 Note</label>
@@ -926,6 +942,7 @@ function openNoteModal(docId, currentNote) {
       4. อัปโหลดไฟล์ด้านล่างนี้
     </div>
     <form method="POST" enctype="multipart/form-data">
+      <?= csrf_field() ?>
       <input type="hidden" name="action" value="upload_signed">
       <input type="hidden" name="doc_id" id="signDocId">
       <div style="margin-bottom:12px;">

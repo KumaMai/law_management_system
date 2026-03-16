@@ -63,6 +63,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay')
     ");
     $chk->execute([$contractId, $userId, $officeId]);
     if (!$chk->fetch()) { header('Location: /pages/payments.php?error=permission'); exit; }
+
+    // ── ตรวจว่าชำระครบแล้วหรือยัง ──
+    $feeChk = $pdo->prepare("
+        SELECT c.fee_amount,
+               COALESCE((SELECT SUM(amount) FROM payments WHERE contract_id=c.contract_id AND status='confirmed'),0) AS paid
+        FROM contracts c WHERE c.contract_id=?
+    ");
+    $feeChk->execute([$contractId]);
+    $feeRow = $feeChk->fetch();
+    if ($feeRow && $feeRow['fee_amount'] > 0 && (float)$feeRow['paid'] >= (float)$feeRow['fee_amount']) {
+        header('Location: /pages/payments.php?contract_id='.$contractId.'&error=already_paid');
+        exit;
+    }
  
     $slipFile = null;
     if (!empty($_FILES['slip_file']['tmp_name']) && $_FILES['slip_file']['error'] === 0) {
@@ -246,7 +259,7 @@ if ($role === 'client') {
         JOIN case_requests cr ON c.request_id = cr.request_id
         JOIN client_profiles cp ON cr.client_id = cp.client_id
         JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.client_id=? AND c.contract_review_status='finalized'
+        WHERE cr.client_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
         ORDER BY c.created_at DESC
     ");
     $contractsStmt->execute([$clientId]);
@@ -264,7 +277,7 @@ if ($role === 'client') {
         JOIN case_requests cr ON c.request_id = cr.request_id
         JOIN client_profiles cp ON cr.client_id = cp.client_id
         JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.lawyer_id=? AND c.contract_review_status='finalized'
+        WHERE cr.lawyer_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
         ORDER BY c.created_at DESC
     ");
     $contractsStmt->execute([$lawyerId]);
@@ -279,7 +292,7 @@ if ($role === 'client') {
         JOIN case_requests cr ON c.request_id = cr.request_id
         JOIN client_profiles cp ON cr.client_id = cp.client_id
         JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.office_id=? AND c.contract_review_status='finalized'
+        WHERE cr.office_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
         ORDER BY c.created_at DESC
     ");
     $contractsStmt->execute([$officeId]);
@@ -396,6 +409,8 @@ include '../includes/header.php';
 <div class="toast toast-ok">✅ อัปเดตสถานะเรียบร้อยแล้ว</div>
 <?php elseif (isset($_GET['qr_updated'])): ?>
 <div class="toast toast-ok">✅ อัปโหลด QR Code เรียบร้อยแล้ว</div>
+<?php elseif (($_GET['error'] ?? '') === 'already_paid'): ?>
+<div class="toast" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;">❌ ชำระครบแล้ว ไม่สามารถส่งรายการชำระเพิ่มได้</div>
 <?php endif; ?>
 
 <div class="pay-layout">
@@ -538,7 +553,7 @@ include '../includes/header.php';
     <?php endif; ?>
 
     <!-- ฟอร์มลูกความแจ้งชำระ -->
-    <?php if ($role === 'client'): ?>
+    <?php if ($role === 'client' && !$isPaid): ?>
     <div class="pay-form-zone">
       <div class="pfz-title">💳 แจ้งการชำระเงิน</div>
       <?php if ($pendingCount > 0): ?>
@@ -589,6 +604,14 @@ include '../includes/header.php';
         </div>
         <button type="submit" class="btn-main" style="margin-top:12px;">📤 ส่งหลักฐานการชำระเงิน</button>
       </form>
+    </div>
+    <?php elseif ($role === 'client' && $isPaid): ?>
+    <div style="background:#d1fae5;border:1px solid #6ee7b7;border-radius:12px;padding:16px 20px;margin-bottom:14px;display:flex;align-items:center;gap:12px;">
+      <div style="font-size:2rem;">✅</div>
+      <div>
+        <div style="font-weight:700;color:#065f46;font-size:.95rem;">ชำระครบแล้ว</div>
+        <div style="font-size:.82rem;color:#047857;margin-top:2px;">ค่าดำเนินคดีได้รับการยืนยันครบถ้วนแล้ว ไม่จำเป็นต้องส่งรายการชำระเพิ่มเติม</div>
+      </div>
     </div>
     <?php endif; ?>
 

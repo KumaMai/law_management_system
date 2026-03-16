@@ -34,14 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$lawyerId || !$detail) {
         $error = 'กรุณาเลือกทนายและกรอกรายละเอียดคดี';
     } else {
-        // เช็คว่ามีคำขอ pending กับทนายคนนี้อยู่แล้วหรือไม่
+        // เช็คว่ามีคำขอ pending หรือ approved (คดีดำเนินอยู่) กับทนายคนนี้แล้วหรือไม่
         $chk = $pdo->prepare("
             SELECT request_id FROM case_requests
-            WHERE client_id = ? AND lawyer_id = ? AND status = 'pending'
+            WHERE client_id = ? AND lawyer_id = ? AND status IN ('pending','approved')
         ");
         $chk->execute([$clientId, $lawyerId]);
         if ($chk->fetch()) {
-            $error = 'คุณมีคำขอที่รอการตอบรับจากทนายคนนี้อยู่แล้ว';
+            $error = 'คุณมีคำขอหรือคดีที่กำลังดำเนินการกับทนายคนนี้อยู่แล้ว';
         } else {
             $requestDate = date('Y-m-d');
             $expireDate  = date('Y-m-d', strtotime('+14 days'));

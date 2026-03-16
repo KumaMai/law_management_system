@@ -14,8 +14,17 @@ $contractId = isset($_GET['contract_id']) ? (int)$_GET['contract_id'] : null;
 // Add filing (lawyer/admin)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])) {
     csrf_verify();
-    $courtInput = trim($_POST['court_input'] ?? '');
-    $courtId    = null;
+    $courtInput  = trim($_POST['court_input'] ?? '');
+    $newContract = (int)$_POST['contract_id'];
+    $courtId     = null;
+
+    // ── ตรวจว่า contract นี้มี filing อยู่แล้วหรือยัง ──
+    $dupCheck = $pdo->prepare("SELECT filing_id FROM filings WHERE contract_id = ? LIMIT 1");
+    $dupCheck->execute([$newContract]);
+    if ($dupCheck->fetch()) {
+        header('Location: /pages/filings.php?contract_id='.$newContract.'&error=duplicate');
+        exit;
+    }
 
     if ($courtInput !== '') {
         // ค้นหาศาลที่มีอยู่แล้ว (case-insensitive)
@@ -38,7 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
         INSERT INTO filings (contract_id, court_id, case_number, charge, filing_date)
         VALUES (?, ?, ?, ?, ?)
     ")->execute([
-        (int)$_POST['contract_id'],
+        $newContract,
         $courtId,
         trim($_POST['case_number']),
         trim($_POST['charge']),
@@ -118,6 +127,12 @@ $statusLabel = [
 $pageTitle = 'การยื่นฟ้องคดี';
 include '../includes/header.php';
 ?>
+
+<?php if (($_GET['error'] ?? '') === 'duplicate'): ?>
+<div style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:8px;padding:11px 16px;margin-bottom:14px;font-size:.86rem;font-weight:600;">
+  ❌ สัญญานี้มีการยื่นฟ้องอยู่แล้ว ไม่สามารถยื่นฟ้องซ้ำได้
+</div>
+<?php endif; ?>
 
 <style>
 .contract-info-card {

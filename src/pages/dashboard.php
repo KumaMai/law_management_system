@@ -284,7 +284,7 @@ if ($role === 'lawyer') {
     $stats = ['pending'=>$r1->fetchColumn(),'total'=>$r2->fetchColumn()];
 } elseif ($role === 'client') {
     $r1 = $pdo->prepare("SELECT COUNT(*) FROM case_requests WHERE client_id=? AND office_id=?"); $r1->execute([$myClientId,$officeId]);
-    $r2 = $pdo->prepare("SELECT COUNT(*) FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE cr.client_id=? AND c.contract_review_status='finalized'"); $r2->execute([$myClientId]);
+    $r2 = $pdo->prepare("SELECT COUNT(*) FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE cr.client_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')"); $r2->execute([$myClientId]);
     $stats = ['total_cases'=>$r1->fetchColumn(),'active_contracts'=>$r2->fetchColumn()];
 } else {
     $r1 = $pdo->prepare("SELECT COUNT(*) FROM case_requests WHERE office_id=? AND status='pending'"); $r1->execute([$officeId]);

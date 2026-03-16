@@ -132,16 +132,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ---- ทนาย: ยืนยันสัญญาสุดท้าย (หลังต่อรอง) ----
     if ($action === 'finalize' && $role === 'lawyer') {
-        $finalFee = $_POST['final_fee'] !== '' ? (float)$_POST['final_fee'] : null;
-        $pdo->prepare("
-            UPDATE contracts SET
-                contract_review_status = 'finalized',
-                negotiation_status     = 'finalized',
-                fee_amount             = COALESCE(?, fee_amount),
-                negotiated_at          = NOW()
+        // ── ตรวจ status ก่อน — finalize ได้เฉพาะจาก lawyer_accepted หรือ negotiating ──
+        $statusChk = $pdo->prepare("
+            SELECT contract_id FROM contracts
             WHERE contract_id = ?
-        ")->execute([$finalFee, $contractId]);
-        $success = '🔒 ยืนยันสัญญาสุดท้ายแล้ว';
+              AND contract_review_status IN ('lawyer_accepted','negotiating')
+        ");
+        $statusChk->execute([$contractId]);
+        if (!$statusChk->fetch()) {
+            $error = 'ไม่สามารถยืนยันสัญญาในขั้นตอนนี้ได้';
+        } else {
+            $finalFee = $_POST['final_fee'] !== '' ? (float)$_POST['final_fee'] : null;
+            $pdo->prepare("
+                UPDATE contracts SET
+                    contract_review_status = 'finalized',
+                    negotiation_status     = 'finalized',
+                    fee_amount             = COALESCE(?, fee_amount),
+                    negotiated_at          = NOW()
+                WHERE contract_id = ?
+            ")->execute([$finalFee, $contractId]);
+            $success = '🔒 ยืนยันสัญญาสุดท้ายแล้ว';
+        }
     }
 
     // ---- ลูกความ: ยอมรับ/โต้กลับ/ปฏิเสธ ----

@@ -848,9 +848,9 @@ if ($_toast) {
 function closeModal(id) { document.getElementById(id).style.display='none'; }
 
 function previewPDF(file, title) {
-    document.getElementById('pdfModalTitle').textContent = title;
-    document.getElementById('pdfFrame').src = '/uploads/sign_docs/' + file;
-    document.getElementById('pdfModal').style.display = 'flex';
+    // เปิด PDF ใน tab ใหม่แทน iframe เพื่อหลีกเลี่ยงปัญหา port mismatch
+    var url = '/uploads/sign_docs/' + file;
+    window.open(url, '_blank');
 }
 
 function openAckModal(docId, title) {

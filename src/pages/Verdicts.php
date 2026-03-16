@@ -113,17 +113,17 @@ $pending   = array_filter($filings, fn($f) =>  empty($f['verdict_result']));
 // ดึง hearing list สำหรับ pending filings (เพื่อแสดงประวัติ)
 $hearingMap = [];
 if (!empty($pending)) {
-    $fidList = implode(',', array_column(array_values($pending), 'filing_id'));
-    if ($fidList) {
-        $hStmt = $pdo->query("
-            SELECT filing_id, hearing_date, hearing_time, hearing_round, status, notes
-            FROM court_hearings
-            WHERE filing_id IN ($fidList)
-            ORDER BY hearing_date DESC
-        ");
-        foreach ($hStmt->fetchAll() as $h) {
-            $hearingMap[$h['filing_id']][] = $h;
-        }
+    $fidList      = array_column(array_values($pending), 'filing_id');
+    $placeholders = implode(',', array_fill(0, count($fidList), '?'));
+    $hStmt = $pdo->prepare("
+        SELECT filing_id, hearing_date, hearing_time, hearing_round, status, notes
+        FROM court_hearings
+        WHERE filing_id IN ($placeholders)
+        ORDER BY hearing_date DESC
+    ");
+    $hStmt->execute($fidList);
+    foreach ($hStmt->fetchAll() as $h) {
+        $hearingMap[$h['filing_id']][] = $h;
     }
 }
 

@@ -122,20 +122,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
 
     // ---- เพิ่มนัดใหม่ ----
     if ($action === '' || $action === 'add') {
-        $pdo->prepare("
-            INSERT INTO court_hearings
-                (filing_id, hearing_date, hearing_time, court_room, hearing_round, status, notes)
-            VALUES (?, ?, ?, ?, ?, 'scheduled', ?)
-        ")->execute([
-            (int)$_POST['filing_id'],
-            $_POST['hearing_date'],
-            $_POST['hearing_time'] ?: null,
-            trim($_POST['court_room']),
-            (int)$_POST['hearing_round'],
-            trim($_POST['notes'] ?? ''),
-        ]);
-        header("Location: /pages/hearings.php?filing_id=" . (int)$_POST['filing_id']);
-        exit;
+        // ── ตรวจว่าคดียังไม่ปิด ──
+        $cChk = $pdo->prepare("
+            SELECT con.contract_id FROM contracts con
+            JOIN filings f ON f.contract_id = con.contract_id
+            WHERE f.filing_id = ? AND con.status != 'completed'
+        ");
+        $cChk->execute([(int)$_POST['filing_id']]);
+        if (!$cChk->fetch()) {
+            $error = 'ไม่สามารถเพิ่มนัดในคดีที่ปิดแล้ว';
+        } else {
+            $pdo->prepare("
+                INSERT INTO court_hearings
+                    (filing_id, hearing_date, hearing_time, court_room, hearing_round, status, notes)
+                VALUES (?, ?, ?, ?, ?, 'scheduled', ?)
+            ")->execute([
+                (int)$_POST['filing_id'],
+                $_POST['hearing_date'],
+                $_POST['hearing_time'] ?: null,
+                trim($_POST['court_room']),
+                (int)$_POST['hearing_round'],
+                trim($_POST['notes'] ?? ''),
+            ]);
+            header("Location: /pages/hearings.php?filing_id=" . (int)$_POST['filing_id']);
+            exit;
+        }
     }
 }
 

@@ -8,6 +8,13 @@ requireRole('admin');
 
 $pdo      = getDB();
 $officeId = $_SESSION['office_id'];
+
+// Helper: mask เลขบัตรประชาชน → แสดงเฉพาะ 3 ตัวแรก + mask + 2 ตัวท้าย
+// เช่น 1939900588461 → 193•••••••61
+function maskCitizenId(?string $id): string {
+    if (!$id || strlen($id) !== 13) return $id ?? '—';
+    return substr($id, 0, 3) . str_repeat('•', 8) . substr($id, -2);
+}
 $result   = ['ok' => false, 'msg' => ''];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -53,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $result = ['ok'=>true,'msg'=>'เพิ่มลูกความสำเร็จ'];
             } catch (Exception $e) {
                 $pdo->rollBack();
-                $error = 'เกิดข้อผิดพลาด: อีเมล, Username หรือเลขบัตรประชาชนอาจซ้ำกัน';
+                $error = 'เกิดข้อผิดพลาดในระบบ กรุณาลองใหม่อีกครั้ง';
             }
         }
     }
@@ -116,7 +123,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <td><?= htmlspecialchars($c['fname'].' '.$c['lname']) ?></td>
             <td><code style="background:#f1f5f9;padding:2px 8px;border-radius:4px;font-size:.83rem;"><?= htmlspecialchars($c['username'] ?? '—') ?></code></td>
             <td><?= htmlspecialchars($c['email']) ?></td>
-            <td><?= htmlspecialchars($c['citizen_id'] ?? '—') ?></td>
+            <td style="letter-spacing:.05em;"><?= htmlspecialchars(maskCitizenId($c['citizen_id'])) ?></td>
             <td><?= htmlspecialchars($c['phone'] ?? '—') ?></td>
         </tr>
         <?php endforeach; ?>

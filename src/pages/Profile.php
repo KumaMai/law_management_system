@@ -41,7 +41,7 @@ if ($role === 'lawyer') {
         $q = $pdo->prepare("SELECT COUNT(*) FROM case_requests WHERE lawyer_id=? AND office_id=?");
         $q->execute([$lid, $officeId]); $statTotal = (int)$q->fetchColumn();
 
-        $q = $pdo->prepare("SELECT COUNT(*) FROM case_requests WHERE lawyer_id=? AND office_id=? AND status='accepted'");
+        $q = $pdo->prepare("SELECT COUNT(*) FROM case_requests WHERE lawyer_id=? AND office_id=? AND status='approved'");
         $q->execute([$lid, $officeId]); $statActive = (int)$q->fetchColumn();
 
         $q = $pdo->prepare("SELECT COUNT(*) FROM case_requests cr JOIN contracts c ON cr.request_id=c.request_id WHERE cr.lawyer_id=? AND c.contract_review_status='finalized'");
@@ -78,7 +78,7 @@ if ($role === 'lawyer') {
         $q = $pdo->prepare("SELECT COUNT(*) FROM case_requests WHERE client_id=? AND office_id=?");
         $q->execute([$cid, $officeId]); $statTotal = (int)$q->fetchColumn();
 
-        $q = $pdo->prepare("SELECT COUNT(*) FROM case_requests WHERE client_id=? AND office_id=? AND status='accepted'");
+        $q = $pdo->prepare("SELECT COUNT(*) FROM case_requests WHERE client_id=? AND office_id=? AND status='approved'");
         $q->execute([$cid, $officeId]); $statActive = (int)$q->fetchColumn();
 
         $q = $pdo->prepare("SELECT COUNT(*) FROM case_requests cr JOIN contracts c ON cr.request_id=c.request_id WHERE cr.client_id=? AND c.contract_review_status='finalized'");

@@ -173,7 +173,7 @@ table.htable tr:nth-child(even) td{background:#f7f9fb;}
   </div>
   <?php endif; ?>
   <div class="cover-meta">
-    จัดทำเมื่อ: <?= date('d/m/Y เวลา H:i น.') ?> &nbsp;|&nbsp; สร้างโดย: <?= htmlspecialchars($_SESSION['user_email'] ?? 'ระบบ') ?>
+    จัดทำเมื่อ: <?= date('d/m/Y เวลา H:i น.') ?> &nbsp;|&nbsp; สร้างโดย: <?= htmlspecialchars($_SESSION['email'] ?? 'ระบบ') ?>
   </div>
 </div>
 

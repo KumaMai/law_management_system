@@ -527,13 +527,11 @@ include '../includes/header.php';
                     🔒 ยืนยันสัญญาสุดท้าย
                 </button>
                 <?php endif; ?>
-                <?php if (!$isRejected && $reviewStatus !== 'finalized'): ?>
                 <?php if ($reviewStatus !== 'finalized'): ?>
                 <button class="btn btn-danger btn-sm"
                         onclick="openModal('modal-reject', <?= $c['contract_id'] ?>, 0)">
                     ❌ ปฏิเสธสัญญา
                 </button>
-                <?php endif; ?>
                 <?php endif; ?>
             <?php endif; ?>
         </div>

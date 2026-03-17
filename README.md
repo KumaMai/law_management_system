@@ -6,7 +6,7 @@
 - **Web Server:** Nginx (Alpine)
 - **Runtime:** Docker + Docker Compose
 - **Frontend:** Vanilla JS, HTML/CSS + SweetAlert2
-- **PDF Export:** wkhtmltopdf
+- **PDF Export:** wkhtmltopdf + qpdf (merge)
 - **Font:** Sarabun (ภาษาไทย)
 
 ---
@@ -43,11 +43,10 @@ law_management_system/
     │   ├── case_documents_ext.php / Case_summary.php
     │   └── my_cases.php
     └── uploads/
-        ├── case_docs/ / case_summary_docs/
-        ├── client_sign_docs/ / signed/
-        ├── lawyer_photos/ / client_photos/
-        ├── payment_slips/ / qr_codes/
-        └── contracts/
+        ├── contracts/  case_docs/  case_summary_docs/  summaries/
+        ├── sign_docs/  sign_docs/signed/
+        ├── lawyer_photos/  client_photos/
+        └── payment_slips/  qr_codes/
 ```
 
 ---
@@ -94,25 +93,33 @@ docker exec -it law_php bash
 ```
 1.  Admin สร้างบัญชีทนาย (lawyers.php)
 2.  ลูกความสมัคร (register.php) หรือ Admin สร้างให้ (clients.php)
-3.  ลูกความส่งคำขอว่าจ้างทนาย (send_request.php)
+3.  ลูกความส่งคำขอว่าจ้างทนาย (send_request.php) — หมดอายุ 14 วัน
 4.  ทนายรับ/ปฏิเสธ (case_requests.php) → รับแล้วระบบสร้าง Contract อัตโนมัติ
 5.  ลูกความอัปโหลดเอกสาร (contract_documents.php)
-6.  ทนายยืนยัน/ตีกลับสัญญา ต่อรองราคาได้ (contracts.php)
+6.  ทนายยืนยัน/ตีกลับ/ต่อรองราคาสัญญา (contracts.php)
 7.  ทนายยื่นฟ้อง (filings.php) → นัดขึ้นศาล (hearings.php)
-8.  บันทึกคำพิพากษา (Verdicts.php)
-9.  ลูกความชำระเงิน (payments.php)
-10. ทนายส่งเอกสารให้เซ็น (client_sign_docs.php)
-11. Export PDF สำนวนคดี (Case_summary.php)
-12. ลูกความรีวิวทนาย (dashboard.php)
+8.  บันทึกคำพิพากษา (Verdicts.php) → คดีปิด
+9.  ลูกความชำระเงิน (payments.php) — QR/โอน/เงินสด Transaction-safe
+10. ทนายส่งเอกสารให้เซ็น (client_sign_docs.php) ← ลูกความส่ง PDF กลับ
+11. Export PDF สำนวนคดี (Case_summary.php) — merge ได้ด้วย qpdf
+12. ลูกความรีวิวทนาย (dashboard.php) — 1-5 ดาว
+```
+
+### สถานะสำคัญ
+
+```
+case_requests:    pending → approved / rejected / expired
+contracts:        pending_lawyer_review → lawyer_accepted
+                  → revision_requested ↔ negotiating → finalized
+                  → lawyer_rejected / terminated
+contracts.status: active → completed
+payments:         pending → confirmed / rejected
+client_sign_docs: pending → acknowledged → signed / rejected
 ```
 
 ---
 
-## Security Patches ที่แก้ไปแล้ว ✅
-
-### ไฟล์ใหม่ที่ต้องมีใน src/config/
-- `csrf_helper.php` — `csrf_token()`, `csrf_field()`, `csrf_verify()`
-- `file_upload_helper.php` — `validateUpload()`, MIME constants
+## Security Patches ✅
 
 ### ช่องโหว่ที่แก้แล้ว
 
@@ -125,16 +132,25 @@ docker exec -it law_php bash
 | File Upload ตรวจแค่ extension | 🟠 High | payments.php, client_sign_docs.php |
 | CSRF ทุกฟอร์ม POST (19 ไฟล์) | 🟡 Medium | ทุกไฟล์ |
 | Rate Limiting (login brute force) | 🟡 Medium | login.php |
+| Verbose Error ใน clients.php | 🟡 Medium | clients.php ✅ |
+| Verbose Error ใน register.php | 🟡 Medium | register.php ✅ |
+| Sensitive Data — citizen_id แสดงเต็ม | 🟡 Medium | clients.php ✅ mask display |
 | Logout ไม่ลบ Session Cookie | 🟢 Low | logout.php |
 | Missing Security Headers | 🟢 Low | nginx/default.conf |
 | PHP execute ใน uploads folder | 🟢 Low | nginx/default.conf |
-| Verbose Error ใน clients.php | 🟡 Medium | clients.php ✅ แก้แล้ว |
-| Sensitive Data (citizen_id แสดงเต็ม) | 🟡 Medium | clients.php ✅ แก้แล้ว (mask display) |
 | Missing Foreign Keys | 🟢 Low | ✅ รัน migrate_add_missing_fk.sql แล้ว |
+
+### Bug Fixes
+
+| Bug | ไฟล์ | รายละเอียด |
+|---|---|---|
+| `$_SESSION['user_email']` key ผิด | Case_summary.php | แก้เป็น `$_SESSION['email']` |
+| `status='accepted'` ผิด | Profile.php | แก้เป็น `status='approved'` |
+| ปุ่ม "ปฏิเสธสัญญา" condition ซ้ำซ้อน | contracts.php | ลบ if ซ้อนออก |
 
 ### Security Headers ใน Nginx
 ```nginx
-root /var/www/html;   ← สำคัญ: ต้องเป็น path นี้
+root /var/www/html;
 add_header X-Frame-Options "DENY" always;
 add_header X-Content-Type-Options "nosniff" always;
 add_header X-XSS-Protection "1; mode=block" always;
@@ -145,48 +161,25 @@ location ~* ^/uploads/.*\.php$ { deny all; return 403; }
 
 ---
 
-## UI/UX Updates ที่ทำไปแล้ว ✅
+## UI/UX Updates ✅
 
-### lawyers.php & clients.php
-- เพิ่มช่อง Username ในฟอร์ม (validate รูปแบบ + เช็คซ้ำ)
-- INSERT `username` เข้า `users` table
-- ตารางแสดงคอลัมน์ Username
-- ฟอร์มเปลี่ยนเป็น Modal — กดปุ่ม "➕ เพิ่ม" ถึงจะโผล่
-- Submit ผ่าน AJAX ไม่ reload หน้า
-- แจ้งเตือนด้วย SweetAlert2 (✅ success / ❌ error)
-- Reload หน้าอัตโนมัติหลัง success
+### Pattern มาตรฐาน (ทุกฟอร์มเพิ่มข้อมูล)
+- ปุ่ม ➕ อยู่มุมขวาบน → คลิกเปิด Modal popup
+- Submit ผ่าน AJAX + SweetAlert2 ✅ / ❌ ไม่ reload หน้า
+- PHP detect `HTTP_X_REQUESTED_WITH` → return JSON
 
-### send_request.php
-- ฟอร์มส่งคำขอเปลี่ยนเป็น Modal popup
-- Submit ผ่าน AJAX + SweetAlert2
+### ไฟล์ที่ปรับแล้ว
 
-### contract_documents.php
-- ฟอร์มส่งเอกสารเปลี่ยนเป็น Modal popup
-- รองรับ file upload ผ่าน AJAX (FormData)
-- Submit ผ่าน AJAX + SweetAlert2
-
-### filings.php
-- ฟอร์มเพิ่มการยื่นฟ้องเปลี่ยนเป็น Modal popup
-- Court custom dropdown (พิมพ์+เลือก+เพิ่มศาลใหม่อัตโนมัติ) ย้ายเข้า modal
-- Auto-open modal ถ้ามี `?contract_id=` ใน URL
-- Submit ผ่าน AJAX + SweetAlert2
-
-### hearings.php
-- ฟอร์มเพิ่มนัดขึ้นศาลเปลี่ยนเป็น Modal popup
-- Auto-open modal ถ้ามี `?filing_id=` ใน URL
-- Submit ผ่าน AJAX + SweetAlert2
-- Modal อัปเดตสถานะ (เดิม) ยังคงเป็น regular POST
-
-### my_cases.php
-- แต่ละ card เปลี่ยนเป็น collapsible header ที่คลิกได้
-- Header แสดง ชื่อคำขอ, ทนาย, badge สถานะ, arrow ▼/▲
-- Auto-open อัตโนมัติถ้าคดีนั้นมี badge ⚠️ รอตอบกลับ
-- ถ้ามีคดีเดียว auto-open เสมอ
-
-### Verdicts.php
-- Pending และ Verdicted cards เปลี่ยนเป็น collapsible toggle
-- Header แสดง เลขคดี, ศาล, ชื่อลูกความ, badge ผลคำพิพากษา
-- ทุก card ซ่อน body ไว้ก่อน ต้องคลิกถึงจะเปิด
+| ไฟล์ | การเปลี่ยนแปลง |
+|---|---|
+| lawyers.php | Modal + AJAX + SweetAlert2, Username field + validate |
+| clients.php | Modal + AJAX + SweetAlert2, Username field, citizen_id mask |
+| send_request.php | ฟอร์มส่งคำขอ → Modal + AJAX |
+| contract_documents.php | ฟอร์มส่งเอกสาร → Modal + AJAX + file upload |
+| filings.php | ฟอร์มยื่นฟ้อง → Modal + AJAX + court custom dropdown + keyboard nav |
+| hearings.php | ฟอร์มเพิ่มนัด → Modal + AJAX, real-time countdown |
+| my_cases.php | Cards → Collapsible toggle, auto-open ⚠️ รอตอบกลับ |
+| Verdicts.php | Cards → Collapsible toggle, header แสดงผลคำพิพากษา |
 
 ---
 

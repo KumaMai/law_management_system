@@ -198,18 +198,40 @@ $negLabel = [
     $negInfo   = $negLabel[$negStatus] ?? $negLabel['accepted'];
     $isRevision = $negStatus === 'revision_requested';
 ?>
-<div class="card" style="<?= $isRevision ? 'border:2px solid #ffc107;' : '' ?>">
+<div class="card" style="padding:0; overflow:hidden; <?= $isRevision ? 'border:2px solid #ffc107;' : '' ?>">
 
-    <!-- Header -->
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
-        <h2 style="margin:0;">
-            คำขอ #<?= $case['request_id'] ?>
-            <span class="badge <?= $badgeMap[$case['status']] ?? '' ?>" style="margin-left:8px;">
+    <!-- Clickable Header -->
+    <div onclick="toggleCase('case-<?= $case['request_id'] ?>')"
+         style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px;
+                cursor:pointer; user-select:none;
+                background:<?= $isRevision ? '#fff8e1' : '#f8fafc' ?>;
+                border-bottom:1px solid #e2e8f0; transition:background .15s;"
+         onmouseover="this.style.background='<?= $isRevision ? '#fff3cd' : '#f0f7ff' ?>'"
+         onmouseout="this.style.background='<?= $isRevision ? '#fff8e1' : '#f8fafc' ?>'">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <h2 style="margin:0; font-size:1rem;">
+                📁 คำขอ #<?= $case['request_id'] ?>
+                — <?= htmlspecialchars($case['lawyer_name']) ?>
+            </h2>
+            <span class="badge <?= $badgeMap[$case['status']] ?? '' ?>">
                 <?= $statusTH[$case['status']] ?? $case['status'] ?>
             </span>
-        </h2>
-        <small style="color:#888;">ส่งเมื่อ <?= $case['request_date'] ?> | หมดอายุ <?= $case['expire_date'] ?></small>
+            <?php if ($isRevision): ?>
+            <span style="background:#ffc107;color:#333;padding:2px 10px;border-radius:10px;font-size:.75rem;font-weight:700;">⚠️ รอตอบกลับ</span>
+            <?php endif; ?>
+            <?php if ($case['verdict_result']): ?>
+            <span style="background:#198754;color:#fff;padding:2px 10px;border-radius:10px;font-size:.75rem;font-weight:700;">⚖️ มีคำพิพากษา</span>
+            <?php endif; ?>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px; flex-shrink:0;">
+            <small style="color:#888; font-size:.78rem;">ส่งเมื่อ <?= $case['request_date'] ?></small>
+            <span class="toggle-icon" id="icon-case-<?= $case['request_id'] ?>"
+                  style="font-size:1.1rem; color:#94a3b8; transition:transform .25s;">▼</span>
+        </div>
     </div>
+
+    <!-- Collapsible Body -->
+    <div id="case-<?= $case['request_id'] ?>" style="display:none; padding:18px 20px;">
 
     <!-- Lawyer Info -->
     <div style="background:#f8f9fa; padding:12px; border-radius:6px; margin-bottom:16px;">
@@ -220,6 +242,7 @@ $negLabel = [
         <?php if ($case['lawyer_phone']): ?>
         | 📞 <?= htmlspecialchars($case['lawyer_phone']) ?>
         <?php endif; ?>
+        <div style="font-size:.78rem;color:#888;margin-top:4px;">ส่งเมื่อ <?= $case['request_date'] ?> | หมดอายุ <?= $case['expire_date'] ?></div>
     </div>
 
     <!-- Case Detail -->
@@ -392,6 +415,7 @@ $negLabel = [
     </div>
     <?php endif; ?>
 
+    </div><!-- end collapsible body -->
 </div>
 <?php endforeach; ?>
 
@@ -510,6 +534,42 @@ function updateAllCountdowns() {
 }
 updateAllCountdowns();
 setInterval(updateAllCountdowns, 1000);
+</script>
+
+<script>
+function toggleCase(id) {
+    const body = document.getElementById(id);
+    const reqId = id.replace('case-', '');
+    const icon  = document.getElementById('icon-' + id);
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'block';
+    icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+// auto-open คดีที่รอตอบกลับ หรือคดีแรกถ้ามีแค่คดีเดียว
+document.addEventListener('DOMContentLoaded', function() {
+    const allBodies = document.querySelectorAll('[id^="case-"]');
+    let opened = false;
+    allBodies.forEach(function(body) {
+        const reqId = body.id.replace('case-', '');
+        const icon  = document.getElementById('icon-case-' + reqId);
+        const header = body.previousElementSibling;
+        // เปิดถ้ามี badge รอตอบกลับ (มี warning badge)
+        if (header && header.querySelector('[style*="ffc107"]')) {
+            body.style.display = 'block';
+            if (icon) icon.style.transform = 'rotate(180deg)';
+            opened = true;
+        }
+    });
+    // ถ้าไม่มีตัวไหนถูก auto-open และมีแค่คดีเดียว → เปิดอัตโนมัติ
+    if (!opened && allBodies.length === 1) {
+        const body = allBodies[0];
+        const reqId = body.id.replace('case-', '');
+        const icon  = document.getElementById('icon-case-' + reqId);
+        body.style.display = 'block';
+        if (icon) icon.style.transform = 'rotate(180deg)';
+    }
+});
 </script>
 
 <?php include '../includes/footer.php'; ?>

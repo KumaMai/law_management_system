@@ -113,17 +113,17 @@ $pending   = array_filter($filings, fn($f) =>  empty($f['verdict_result']));
 // ดึง hearing list สำหรับ pending filings (เพื่อแสดงประวัติ)
 $hearingMap = [];
 if (!empty($pending)) {
-    $fidList      = array_column(array_values($pending), 'filing_id');
-    $placeholders = implode(',', array_fill(0, count($fidList), '?'));
-    $hStmt = $pdo->prepare("
-        SELECT filing_id, hearing_date, hearing_time, hearing_round, status, notes
-        FROM court_hearings
-        WHERE filing_id IN ($placeholders)
-        ORDER BY hearing_date DESC
-    ");
-    $hStmt->execute($fidList);
-    foreach ($hStmt->fetchAll() as $h) {
-        $hearingMap[$h['filing_id']][] = $h;
+    $fidList = implode(',', array_column(array_values($pending), 'filing_id'));
+    if ($fidList) {
+        $hStmt = $pdo->query("
+            SELECT filing_id, hearing_date, hearing_time, hearing_round, status, notes
+            FROM court_hearings
+            WHERE filing_id IN ($fidList)
+            ORDER BY hearing_date DESC
+        ");
+        foreach ($hStmt->fetchAll() as $h) {
+            $hearingMap[$h['filing_id']][] = $h;
+        }
     }
 }
 
@@ -188,17 +188,24 @@ include '../includes/header.php';
     <h2>⏳ คดีที่รอคำพิพากษา (<?= count($pending) ?> คดี)</h2>
 
     <?php foreach ($pending as $f): ?>
-    <div class="verdict-card" style="border-left:4px solid #fd7e14;">
-        <div class="verdict-header" style="background:#7c4a00;">
+    <div class="verdict-card" style="border-left:4px solid #fd7e14; overflow:hidden;">
+        <!-- Clickable header -->
+        <div class="verdict-header" style="background:#7c4a00; cursor:pointer; user-select:none;"
+             onclick="toggleVerdict('pend-<?= $f['filing_id'] ?>')">
             <div>
                 <span style="font-weight:700; font-size:1rem;">📁 <?= htmlspecialchars($f['case_number'] ?? 'ไม่มีเลขคดี') ?></span>
                 <span style="font-size:0.82rem; opacity:.8; margin-left:10px;"><?= htmlspecialchars($f['court_name']) ?></span>
+                <span style="font-size:0.8rem; opacity:.75; margin-left:8px;">| <?= htmlspecialchars($f['client_name']) ?></span>
             </div>
-            <span style="background:#fd7e14; color:#fff; padding:3px 12px; border-radius:10px; font-size:0.8rem; font-weight:700;">
-                ⏳ รอพิพากษา
-            </span>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <span style="background:#fd7e14; color:#fff; padding:3px 12px; border-radius:10px; font-size:0.8rem; font-weight:700;">
+                    ⏳ รอพิพากษา
+                </span>
+                <span id="icon-pend-<?= $f['filing_id'] ?>" style="font-size:1rem;color:#fff;opacity:.7;transition:transform .25s;">▼</span>
+            </div>
         </div>
-        <div class="verdict-body">
+        <!-- Collapsible body -->
+        <div id="pend-<?= $f['filing_id'] ?>" class="verdict-body" style="display:none;">
             <div class="info-grid">
                 <div class="info-cell"><div class="lbl">👤 ลูกความ (โจทก์)</div><strong><?= htmlspecialchars($f['client_name']) ?></strong></div>
                 <div class="info-cell"><div class="lbl">👨‍⚖️ ทนาย</div><strong><?= htmlspecialchars($f['lawyer_name']) ?></strong></div>
@@ -254,18 +261,23 @@ include '../includes/header.php';
         $winnerText  = $isPlaintiffWin ? '✅ โจทก์ชนะ' : '✅ จำเลยชนะ';
         $winnerColor = $isPlaintiffWin ? '#198754' : '#0d6efd';
     ?>
-    <div class="verdict-card" style="border-left:4px solid <?= $winnerColor ?>;">
-        <div class="verdict-header">
+    <div class="verdict-card" style="border-left:4px solid <?= $winnerColor ?>; overflow:hidden;">
+        <!-- Clickable header -->
+        <div class="verdict-header" style="cursor:pointer; user-select:none;"
+             onclick="toggleVerdict('verd-<?= $f['filing_id'] ?>')">
             <div>
                 <span style="font-weight:700;">📁 <?= htmlspecialchars($f['case_number'] ?? '—') ?></span>
                 <span style="font-size:0.82rem; opacity:.8; margin-left:8px;"><?= htmlspecialchars($f['court_name']) ?></span>
+                <span style="font-size:0.8rem; opacity:.7; margin-left:8px;">| <?= htmlspecialchars($f['client_name']) ?></span>
             </div>
             <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                 <span class="winner-badge" style="background:<?= $winnerColor ?>;"><?= $winnerText ?></span>
                 <span style="font-size:0.8rem; opacity:.75;">วันที่: <?= $f['verdict_date'] ?></span>
+                <span id="icon-verd-<?= $f['filing_id'] ?>" style="font-size:1rem;color:#fff;opacity:.7;transition:transform .25s;">▼</span>
             </div>
         </div>
-        <div class="verdict-body">
+        <!-- Collapsible body -->
+        <div id="verd-<?= $f['filing_id'] ?>" class="verdict-body" style="display:none;">
             <div class="info-grid">
                 <div class="info-cell"><div class="lbl">👤 ลูกความ (โจทก์)</div><strong><?= htmlspecialchars($f['client_name']) ?></strong></div>
                 <div class="info-cell"><div class="lbl">👨‍⚖️ ทนาย</div><strong><?= htmlspecialchars($f['lawyer_name']) ?></strong></div>
@@ -411,6 +423,16 @@ function closeVerdictModal() {
 document.getElementById('modal-verdict').addEventListener('click', function(e) {
     if (e.target === this) closeVerdictModal();
 });
+</script>
+
+<script>
+function toggleVerdict(id) {
+    const body = document.getElementById(id);
+    const icon = document.getElementById('icon-' + id);
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'block';
+    if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+}
 </script>
 
 <?php include '../includes/footer.php'; ?>

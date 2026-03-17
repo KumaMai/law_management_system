@@ -631,7 +631,7 @@ include '../includes/header.php';
       </div>
       <div style="font-size:0.77rem;color:#888;padding-left:36px;">
         👨‍⚖️ <?= htmlspecialchars($c['lawyer_name']) ?>
-        <?= $c['case_number'] ? '&nbsp;|&nbsp; 📁 '.$c['case_number'] : '' ?><br>
+        <?= $c['case_number'] ? '&nbsp;|&nbsp; 📁 '.htmlspecialchars($c['case_number']) : '' ?><br>
         🗓 <?= date('d/m/Y', strtotime($c['created_at'])) ?>
         &nbsp;|&nbsp; <?= htmlspecialchars(mb_substr($c['detail']??'',0,28)) ?>
       </div>
@@ -662,7 +662,7 @@ include '../includes/header.php';
             </div>
             <div style="font-size:0.83rem;color:#555;margin-top:3px;">
               👨‍⚖️ <?= htmlspecialchars($previewCase['lawyer_name']) ?>
-              <?= $previewCase['specialization'] ? '('.$previewCase['specialization'].')' : '' ?>
+              <?= $previewCase['specialization'] ? '('.htmlspecialchars($previewCase['specialization']).')' : '' ?>
             </div>
           </div>
           <div style="text-align:right;">
@@ -747,7 +747,7 @@ include '../includes/header.php';
           <div style="font-size:2rem;"><?= $isP ? '🏆' : '🛡️' ?></div>
           <div>
             <div style="font-size:1rem;font-weight:700;color:<?= $isP ? '#0f5132' : '#084298' ?>;">
-              <?= $isP ? '✅ โจทก์ชนะคดี ('.$previewCase['client_name'].')' : '✅ จำเลยชนะคดี' ?>
+              <?= $isP ? '✅ โจทก์ชนะคดี ('.htmlspecialchars($previewCase['client_name']).')' : '✅ จำเลยชนะคดี' ?>
             </div>
             <div style="font-size:0.82rem;color:#555;">วันที่พิพากษา: <?= $previewCase['verdict_date'] ? date('d/m/Y', strtotime($previewCase['verdict_date'])) : '—' ?></div>
           </div>

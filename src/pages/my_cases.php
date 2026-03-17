@@ -24,6 +24,7 @@ if (!$clientId) {
 // Handle negotiation response
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
     csrf_verify();
     $contractId = (int)($_POST['contract_id'] ?? 0);
     $action     = $_POST['action'] ?? '';
@@ -80,6 +81,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success = '❌ ส่งการปฏิเสธแล้ว ทนายจะได้รับทราบ';
         }
     }
+    if ($isAjax) {
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => empty($error), 'msg' => $error ?: $success]);
+        exit;
+    }
 }
 
 // ==============================
@@ -90,6 +96,7 @@ $stmt = $pdo->prepare("
            CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
            lp.specialization, lp.phone AS lawyer_phone,
            con.contract_id, con.contract_date, con.fee_amount,
+           con.status AS contract_status,
            con.payment_status, con.negotiation_status,
            con.lawyer_note, con.proposed_fee, con.client_response,
            con.negotiated_at,
@@ -164,6 +171,7 @@ $negLabel = [
 ];
 ?>
 
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
 .neg-alert { border-radius:8px; padding:14px 18px; margin-bottom:16px; border-left:5px solid; font-size:0.92rem; }
 .neg-alert.warning { background:#fff8e1; border-color:#ffc107; }
@@ -174,13 +182,6 @@ $negLabel = [
 </style>
 
 <h2 style="margin-bottom:16px; color:#1a3a5c;">📁 คดีของฉัน</h2>
-
-<?php if ($error): ?>
-<div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
-<?php endif; ?>
-<?php if ($success): ?>
-<div class="alert alert-success"><?= htmlspecialchars($success) ?></div>
-<?php endif; ?>
 
 <!-- แจ้งเตือนรวมถ้ามีสัญญาที่รอตอบกลับ -->
 <?php if (count($pendingNeg) > 0): ?>
@@ -197,6 +198,22 @@ $negLabel = [
     $negStatus = $case['negotiation_status'] ?? 'accepted';
     $negInfo   = $negLabel[$negStatus] ?? $negLabel['accepted'];
     $isRevision = $negStatus === 'revision_requested';
+
+    // คำนวณ display status โดยดู contract_status ด้วย
+    $contractStatus = $case['contract_status'] ?? null;
+    if ($contractStatus === 'completed') {
+        $displayStatusTH  = '✅ คดีปิดแล้ว';
+        $displayBadgeClass = 'badge-approved';
+        $displayBadgeStyle = 'background:#198754;color:#fff;';
+    } elseif ($contractStatus === 'terminated') {
+        $displayStatusTH  = '🚫 ยุติคดี';
+        $displayBadgeClass = 'badge-rejected';
+        $displayBadgeStyle = 'background:#dc3545;color:#fff;';
+    } else {
+        $displayStatusTH  = $statusTH[$case['status']] ?? $case['status'];
+        $displayBadgeClass = $badgeMap[$case['status']] ?? '';
+        $displayBadgeStyle = '';
+    }
 ?>
 <div class="card" style="padding:0; overflow:hidden; <?= $isRevision ? 'border:2px solid #ffc107;' : '' ?>">
 
@@ -213,8 +230,8 @@ $negLabel = [
                 📁 คำขอ #<?= $case['request_id'] ?>
                 — <?= htmlspecialchars($case['lawyer_name']) ?>
             </h2>
-            <span class="badge <?= $badgeMap[$case['status']] ?? '' ?>">
-                <?= $statusTH[$case['status']] ?? $case['status'] ?>
+            <span class="badge <?= $displayBadgeClass ?>" <?= $displayBadgeStyle ? 'style="'.$displayBadgeStyle.'"' : '' ?>>
+                <?= $displayStatusTH ?>
             </span>
             <?php if ($isRevision): ?>
             <span style="background:#ffc107;color:#333;padding:2px 10px;border-radius:10px;font-size:.75rem;font-weight:700;">⚠️ รอตอบกลับ</span>
@@ -489,6 +506,33 @@ function closeReply() {
 
 document.getElementById('modal-reply').addEventListener('click', function(e) {
     if (e.target === this) closeReply();
+});
+
+document.querySelector('#modal-reply form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('reply-submit');
+    const origText = btn.textContent; const origClass = btn.className;
+    btn.disabled = true; btn.textContent = '⏳ กำลังส่ง...';
+    try {
+        const res  = await fetch(location.pathname, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: new FormData(this)
+        });
+        const data = await res.json();
+        closeReply();
+        if (data.ok) {
+            await Swal.fire({ icon:'success', title:'สำเร็จ!', text: data.msg,
+                confirmButtonColor:'#1a3a5c', timer:2000, timerProgressBar:true, showConfirmButton:false });
+            location.reload();
+        } else {
+            Swal.fire({ icon:'error', title:'เกิดข้อผิดพลาด', text: data.msg, confirmButtonColor:'#1a3a5c' });
+        }
+    } catch {
+        Swal.fire({ icon:'error', title:'ผิดพลาด', text:'ไม่สามารถเชื่อมต่อได้', confirmButtonColor:'#1a3a5c' });
+    } finally {
+        btn.disabled = false; btn.textContent = origText; btn.className = origClass;
+    }
 });
 </script>
 

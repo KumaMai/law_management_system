@@ -569,8 +569,8 @@ $errMap = [
         <div class="ch-name"><?= htmlspecialchars($selectedCase['client_name']) ?> — โจทก์</div>
         <div class="ch-meta">
           ทนาย: <?= htmlspecialchars($selectedCase['lawyer_name']) ?>
-          <?= $selectedCase['case_number'] ? ' &nbsp;|&nbsp; คดีหมายเลข: '.$selectedCase['case_number'] : '' ?>
-          <?= $selectedCase['court_name']  ? ' &nbsp;|&nbsp; '.$selectedCase['court_name'] : '' ?>
+          <?= $selectedCase['case_number'] ? ' &nbsp;|&nbsp; คดีหมายเลข: '.htmlspecialchars($selectedCase['case_number']) : '' ?>
+          <?= $selectedCase['court_name']  ? ' &nbsp;|&nbsp; '.htmlspecialchars($selectedCase['court_name']) : '' ?>
         </div>
       </div>
       <div class="ch-badge"><?= count($docs) ?> เอกสาร</div>
@@ -679,14 +679,14 @@ $errMap = [
           };
           $fsize = $doc['file_size'] ? number_format($doc['file_size']/1024, 1).' KB' : '';
         ?>
-        <div class="doc-card" data-type="<?= $doc['doc_type'] ?>">
+        <div class="doc-card" data-type="<?= htmlspecialchars($doc['doc_type']) ?>">
           <div class="doc-icon <?= $iconClass ?>"><?= $iconEmoji ?></div>
           <div class="doc-info">
             <div class="doc-name">
               <?= htmlspecialchars($doc['doc_label'] ?: $doc['file_name']) ?>
             </div>
             <div class="doc-meta">
-              <span class="doc-type-badge"><?= $docTypeTH[$doc['doc_type']] ?? $doc['doc_type'] ?></span>
+              <span class="doc-type-badge"><?= $docTypeTH[$doc['doc_type']] ?? htmlspecialchars($doc['doc_type']) ?></span>
               <?= $fsize ?>
               &nbsp;|&nbsp; <?= date('d/m/Y H:i', strtotime($doc['created_at'])) ?>
               <?php if ($doc['doc_label'] && $doc['doc_label'] !== $doc['file_name']): ?>
@@ -699,7 +699,7 @@ $errMap = [
                class="btn-act btn-view">👁 ดู</a>
             <a href="/uploads/case_docs/<?= urlencode($doc['file_path']) ?>" download="<?= htmlspecialchars($doc['file_name']) ?>"
                class="btn-act btn-dl">⬇ โหลด</a>
-            <form method="POST" onsubmit="return confirm('ลบเอกสาร \'<?= addslashes($doc['doc_label'] ?: $doc['file_name']) ?>\' ?')" style="margin:0;">
+            <form method="POST" onsubmit="return confirm('ลบเอกสาร ' + <?= json_encode($doc['doc_label'] ?: $doc['file_name']) ?> + ' ?')" style="margin:0;">
               <?= csrf_field() ?>
               <input type="hidden" name="action" value="delete">
               <input type="hidden" name="doc_id" value="<?= $doc['doc_id'] ?>">

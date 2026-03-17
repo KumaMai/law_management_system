@@ -76,6 +76,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay')
         header('Location: /pages/payments.php?contract_id='.$contractId.'&error=already_paid');
         exit;
     }
+
+    // ── ตรวจ installment_note: ถ้าเลือก "จ่ายเต็มจำนวน" แต่จำนวนไม่ตรงกับยอดคงเหลือ → แก้อัตโนมัติ ──
+    if ($installmentNote === 'จ่ายเต็มจำนวน' && $feeRow && $feeRow['fee_amount'] > 0) {
+        $remaining = max(0, (float)$feeRow['fee_amount'] - (float)$feeRow['paid']);
+        if ($remaining > 0 && abs($amount - $remaining) > 0.01) {
+            $installmentNote = 'จ่ายบางส่วน';
+        }
+    }
  
     $slipFile = null;
     if (!empty($_FILES['slip_file']['tmp_name']) && $_FILES['slip_file']['error'] === 0) {
@@ -109,12 +117,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay')
 // Handle: ทนาย/admin ยืนยัน/ปฏิเสธ
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['confirm','reject'])) {
+    $isAjax     = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
     csrf_verify();
     $paymentId  = (int)$_POST['payment_id'];
     $contractId = (int)$_POST['contract_id'];
     $newStatus  = ($_POST['action'] === 'confirm') ? 'confirmed' : 'rejected';
  
     if (!in_array($role, ['admin','lawyer'])) {
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่มีสิทธิ์']); exit; }
         header('Location: /pages/payments.php?error=permission'); exit;
     }
  
@@ -133,6 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
     $verify->execute([$paymentId, $contractId, $officeId]);
  
     if (!$verify->fetch()) {
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่มีสิทธิ์']); exit; }
         header('Location: /pages/payments.php?error=permission'); exit;
     }
  
@@ -165,13 +176,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
             $ps = ($feeAmount > 0 && $totalPaid >= $feeAmount) ? 'paid' : 'partial';
             $pdo->prepare("UPDATE contracts SET payment_status=? WHERE contract_id=?")
                 ->execute([$ps, $contractId]);
+
+            // ถ้าจ่ายครบแล้ว AND มีคำพิพากษาแล้ว → ปิดคดีอัตโนมัติ
+            if ($ps === 'paid') {
+                $pdo->prepare("
+                    UPDATE contracts SET status = 'completed'
+                    WHERE contract_id = ?
+                      AND status != 'completed'
+                      AND status != 'terminated'
+                      AND EXISTS (
+                          SELECT 1 FROM verdicts v
+                          JOIN filings f ON v.filing_id = f.filing_id
+                          WHERE f.contract_id = ?
+                      )
+                ")->execute([$contractId, $contractId]);
+            }
         }
  
         $pdo->commit();
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            $msg = $newStatus === 'confirmed' ? '✅ ยืนยันรายการชำระเงินแล้ว' : '❌ ปฏิเสธรายการชำระเงินแล้ว';
+            echo json_encode(['ok' => true, 'msg' => $msg]);
+            exit;
+        }
  
     } catch (Exception $e) {
         $pdo->rollBack();
         error_log('Payment confirm error: ' . $e->getMessage());
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'เกิดข้อผิดพลาดในระบบ']); exit; }
         header('Location: /pages/payments.php?contract_id='.$contractId.'&error=system');
         exit;
     }
@@ -184,8 +218,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
 // Handle: ทนายบันทึกรับเงินสดเอง
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_cash') {
+    $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
     csrf_verify();
     if (!in_array($role, ['admin','lawyer'])) {
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่มีสิทธิ์']); exit; }
         header('Location: /pages/payments.php?error=permission'); exit;
     }
     $contractId      = (int)$_POST['contract_id'];
@@ -202,6 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_c
     ");
     $chkC->execute([$contractId, $officeId]);
     if (!$chkC->fetch()) {
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่มีสิทธิ์']); exit; }
         header('Location: /pages/payments.php?error=permission'); exit;
     }
  
@@ -228,12 +265,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_c
         $ps = ($feeAmount > 0 && $totalPaid >= $feeAmount) ? 'paid' : 'partial';
         $pdo->prepare("UPDATE contracts SET payment_status=? WHERE contract_id=?")
             ->execute([$ps, $contractId]);
- 
+
+        // ถ้าจ่ายครบแล้ว AND มีคำพิพากษาแล้ว → ปิดคดีอัตโนมัติ
+        if ($ps === 'paid') {
+            $pdo->prepare("
+                UPDATE contracts SET status = 'completed'
+                WHERE contract_id = ?
+                  AND status != 'completed'
+                  AND status != 'terminated'
+                  AND EXISTS (
+                      SELECT 1 FROM verdicts v
+                      JOIN filings f ON v.filing_id = f.filing_id
+                      WHERE f.contract_id = ?
+                  )
+            ")->execute([$contractId, $contractId]);
+        }
+
         $pdo->commit();
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => true, 'msg' => '✅ บันทึกรับเงินสดเรียบร้อยแล้ว']);
+            exit;
+        }
  
     } catch (Exception $e) {
         $pdo->rollBack();
         error_log('Cash payment error: ' . $e->getMessage());
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'เกิดข้อผิดพลาดในระบบ']); exit; }
         header('Location: /pages/payments.php?contract_id='.$contractId.'&error=system');
         exit;
     }
@@ -401,16 +460,23 @@ include '../includes/header.php';
 .empty-state{text-align:center;padding:36px 20px;color:var(--muted);}
 </style>
 
-<?php if (isset($_GET['paid'])): ?>
-<div class="toast toast-ok">✅ ส่งหลักฐานการชำระเงินเรียบร้อย — รอทนายความยืนยัน</div>
-<?php elseif (isset($_GET['cash_added'])): ?>
-<div class="toast toast-ok">✅ บันทึกรับเงินสดเรียบร้อยแล้ว</div>
-<?php elseif (isset($_GET['updated'])): ?>
-<div class="toast toast-ok">✅ อัปเดตสถานะเรียบร้อยแล้ว</div>
-<?php elseif (isset($_GET['qr_updated'])): ?>
-<div class="toast toast-ok">✅ อัปโหลด QR Code เรียบร้อยแล้ว</div>
-<?php elseif (($_GET['error'] ?? '') === 'already_paid'): ?>
-<div class="toast" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;">❌ ชำระครบแล้ว ไม่สามารถส่งรายการชำระเพิ่มได้</div>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<?php
+$swalMsg = ''; $swalIcon = 'success';
+if (isset($_GET['paid']))         { $swalMsg = 'ส่งหลักฐานการชำระเงินเรียบร้อย รอทนายความยืนยัน'; }
+elseif (isset($_GET['cash_added'])){ $swalMsg = 'บันทึกรับเงินสดเรียบร้อยแล้ว'; }
+elseif (isset($_GET['updated']))  { $swalMsg = 'อัปเดตสถานะเรียบร้อยแล้ว'; }
+elseif (isset($_GET['qr_updated'])){ $swalMsg = 'อัปโหลด QR Code เรียบร้อยแล้ว'; }
+elseif (($_GET['error'] ?? '') === 'already_paid'){ $swalMsg = 'ชำระครบแล้ว ไม่สามารถส่งรายการชำระเพิ่มได้'; $swalIcon = 'error'; }
+?>
+<?php if ($swalMsg): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    Swal.fire({ icon: '<?= $swalIcon ?>', title: '<?= $swalIcon === 'success' ? 'สำเร็จ!' : 'เกิดข้อผิดพลาด' ?>',
+        text: '<?= addslashes($swalMsg) ?>', confirmButtonColor:'#1a3a5c',
+        timer: 2500, timerProgressBar: true, showConfirmButton: false });
+});
+</script>
 <?php endif; ?>
 
 <div class="pay-layout">
@@ -561,14 +627,17 @@ include '../includes/header.php';
         ⏳ มีรายการรอยืนยัน <?= $pendingCount ?> รายการ — สามารถส่งรายการใหม่เพิ่มได้
       </div>
       <?php endif; ?>
-      <form method="POST" enctype="multipart/form-data">
+      <form method="POST" enctype="multipart/form-data" id="clientPayForm">
         <?= csrf_field() ?>
         <input type="hidden" name="action" value="pay">
         <input type="hidden" name="contract_id" value="<?= $selectedId ?>">
         <div class="pfz-grid">
           <div>
             <label class="pfz-label">จำนวนเงิน (บาท) <span style="color:red">*</span></label>
-            <input type="number" name="amount" class="pfz-input" required step="0.01" min="1" placeholder="ระบุจำนวน (ไม่จำกัดยอด)">
+            <input type="number" name="amount" id="payAmount" class="pfz-input" required step="0.01" min="1"
+                   placeholder="ระบุจำนวน (ไม่จำกัดยอด)"
+                   data-remaining="<?= $remaining ?>"
+                   onchange="validatePayAmount()">
           </div>
           <div>
             <label class="pfz-label">วันที่ชำระ <span style="color:red">*</span></label>
@@ -584,13 +653,14 @@ include '../includes/header.php';
           </div>
           <div>
             <label class="pfz-label">ประเภทการจ่าย</label>
-            <select name="installment_note" class="pfz-select">
+            <select name="installment_note" id="payInstallment" class="pfz-select" onchange="onInstallmentChange(this)">
               <option value="">— เลือกประเภท —</option>
               <option value="จ่ายเต็มจำนวน">💯 จ่ายเต็มจำนวน</option>
               <option value="จ่ายบางส่วน">📊 จ่ายบางส่วน</option>
               <option value="จ่ายล่วงหน้า">⏩ จ่ายล่วงหน้า</option>
               <option value="มัดจำ">🔒 มัดจำ</option>
             </select>
+            <small id="installment-hint" style="display:none;color:#856404;font-size:.75rem;margin-top:3px;display:block;"></small>
           </div>
           <div>
             <label class="pfz-label">แนบสลิป / หลักฐาน</label>
@@ -602,7 +672,8 @@ include '../includes/header.php';
             <input type="text" name="note" class="pfz-input" placeholder="เลขอ้างอิง หรือข้อความถึงทนาย...">
           </div>
         </div>
-        <button type="submit" class="btn-main" style="margin-top:12px;">📤 ส่งหลักฐานการชำระเงิน</button>
+        <button type="button" class="btn-main" style="margin-top:12px;"
+                onclick="submitClientPay()">📤 ส่งหลักฐานการชำระเงิน</button>
       </form>
     </div>
     <?php elseif ($role === 'client' && $isPaid): ?>
@@ -647,8 +718,8 @@ include '../includes/header.php';
             <input type="text" name="cash_note" class="pfz-input" placeholder="บันทึกเพิ่มเติม...">
           </div>
         </div>
-        <button type="submit" class="btn-main btn-green" style="margin-top:11px;"
-                onclick="return confirm('ยืนยันการรับเงินสดจำนวนนี้?')">✅ ยืนยันรับเงินสด</button>
+        <button type="button" class="btn-main btn-green" style="margin-top:11px;"
+                onclick="submitCash(this.closest('form'))">✅ ยืนยันรับเงินสด</button>
       </form>
     </div>
     <?php endif; ?>
@@ -701,19 +772,21 @@ include '../includes/header.php';
           <a href="/uploads/payment_slips/<?= urlencode($p['slip_file']) ?>" target="_blank" class="btn-sm btn-slip">🧾 สลิป</a>
           <?php endif; ?>
           <?php if (in_array($role,['admin','lawyer']) && $p['status']==='pending'): ?>
-          <form method="POST" style="margin:0;display:inline;">
+          <form style="margin:0;display:inline;">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="confirm">
             <input type="hidden" name="payment_id" value="<?= $p['payment_id'] ?>">
             <input type="hidden" name="contract_id" value="<?= $selectedId ?>">
-            <button type="submit" class="btn-sm btn-confirm" onclick="return confirm('ยืนยันการชำระเงินนี้?')">✅ ยืนยัน</button>
+            <button type="button" class="btn-sm btn-confirm"
+                    onclick="submitPaymentAction(this.closest('form'), 'ยืนยันการชำระเงินรายการนี้?', 'ยืนยัน', '#16a34a')">✅ ยืนยัน</button>
           </form>
-          <form method="POST" style="margin:0;display:inline;">
+          <form style="margin:0;display:inline;">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="reject">
             <input type="hidden" name="payment_id" value="<?= $p['payment_id'] ?>">
             <input type="hidden" name="contract_id" value="<?= $selectedId ?>">
-            <button type="submit" class="btn-sm btn-reject" onclick="return confirm('ปฏิเสธรายการนี้?')">❌ ปฏิเสธ</button>
+            <button type="button" class="btn-sm btn-reject"
+                    onclick="submitPaymentAction(this.closest('form'), 'ปฏิเสธรายการชำระเงินนี้?', 'ปฏิเสธ', '#dc2626')">❌ ปฏิเสธ</button>
           </form>
           <?php endif; ?>
         </div>
@@ -745,6 +818,116 @@ function filterList(q) {
 }
 function openQr()  { document.getElementById('qrModal').style.display = 'flex'; }
 function closeQr() { document.getElementById('qrModal').style.display = 'none'; }
+
+function onInstallmentChange(sel) {
+    const amountInput = document.getElementById('payAmount');
+    const hint = document.getElementById('installment-hint');
+    const remaining = parseFloat(amountInput?.dataset.remaining || 0);
+    if (sel.value === 'จ่ายเต็มจำนวน' && remaining > 0) {
+        // Auto-fill ยอดคงเหลือ
+        amountInput.value = remaining.toFixed(2);
+        if (hint) { hint.textContent = '✅ กรอกยอดคงเหลือ ' + remaining.toLocaleString('th-TH', {minimumFractionDigits:2}) + ' บาท ให้อัตโนมัติ'; hint.style.display = 'block'; }
+    } else {
+        if (hint) hint.style.display = 'none';
+    }
+}
+
+function validatePayAmount() {
+    const amountInput = document.getElementById('payAmount');
+    const installSel  = document.getElementById('payInstallment');
+    const hint = document.getElementById('installment-hint');
+    if (!amountInput || !installSel) return true;
+    const remaining = parseFloat(amountInput.dataset.remaining || 0);
+    const entered   = parseFloat(amountInput.value || 0);
+    if (installSel.value === 'จ่ายเต็มจำนวน' && remaining > 0 && Math.abs(entered - remaining) > 0.01) {
+        if (hint) { hint.textContent = '⚠️ ยอดคงเหลือจริงคือ ' + remaining.toLocaleString('th-TH', {minimumFractionDigits:2}) + ' บาท — กรุณาแก้ไขหรือเลือกประเภทอื่น'; hint.style.display = 'block'; hint.style.color = '#dc2626'; }
+        return false;
+    }
+    if (hint) hint.style.display = 'none';
+    return true;
+}
+
+async function submitClientPay() {
+    if (!validatePayAmount()) {
+        const installSel  = document.getElementById('payInstallment');
+        const amountInput = document.getElementById('payAmount');
+        const remaining   = parseFloat(amountInput?.dataset.remaining || 0);
+        const entered     = parseFloat(amountInput?.value || 0);
+        const result = await Swal.fire({
+            icon: 'warning',
+            title: 'จำนวนเงินไม่ตรงกับ "จ่ายเต็มจำนวน"',
+            html: `คุณกรอก <strong>${Number(entered).toLocaleString('th-TH', {minimumFractionDigits:2})} บาท</strong><br>แต่ยอดคงเหลือคือ <strong>${Number(remaining).toLocaleString('th-TH', {minimumFractionDigits:2})} บาท</strong><br><br>ต้องการดำเนินการอย่างไร?`,
+            showCancelButton: true,
+            confirmButtonText: '✅ แก้ไขเป็นยอดเต็ม (' + Number(remaining).toLocaleString('th-TH') + ' บาท)',
+            cancelButtonText: '📊 เปลี่ยนเป็น "จ่ายบางส่วน"',
+            confirmButtonColor: '#1a3a5c',
+            cancelButtonColor: '#6366f1',
+        });
+        if (result.isConfirmed) {
+            amountInput.value = remaining.toFixed(2);
+            document.getElementById('clientPayForm').submit();
+        } else if (result.isDismissed && result.dismiss === Swal.DismissReason.cancel) {
+            installSel.value = 'จ่ายบางส่วน';
+            document.getElementById('clientPayForm').submit();
+        }
+        return;
+    }
+    document.getElementById('clientPayForm').submit();
+}
+
+async function _payFetch(form) {
+    const res  = await fetch(location.pathname, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: new FormData(form)
+    });
+    return res.json();
+}
+
+async function submitCash(form) {
+    const amount = form.querySelector('[name="cash_amount"]')?.value;
+    if (!amount) { Swal.fire({ icon:'warning', title:'กรุณาระบุจำนวนเงิน', confirmButtonColor:'#1a3a5c' }); return; }
+    const result = await Swal.fire({
+        icon: 'question', title: 'ยืนยันรับเงินสด?',
+        text: `จำนวน ${Number(amount).toLocaleString('th-TH', {minimumFractionDigits:2})} บาท`,
+        showCancelButton: true, confirmButtonText: '✅ ยืนยัน', cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#16a34a', cancelButtonColor: '#94a3b8'
+    });
+    if (!result.isConfirmed) return;
+    const btn = form.querySelector('button'); btn.disabled = true; btn.textContent = '⏳...';
+    try {
+        const data = await _payFetch(form);
+        if (data.ok) {
+            await Swal.fire({ icon:'success', title:'สำเร็จ!', text: data.msg,
+                confirmButtonColor:'#1a3a5c', timer:2000, timerProgressBar:true, showConfirmButton:false });
+            location.reload();
+        } else {
+            Swal.fire({ icon:'error', title:'เกิดข้อผิดพลาด', text: data.msg, confirmButtonColor:'#1a3a5c' });
+            btn.disabled = false; btn.textContent = '✅ ยืนยันรับเงินสด';
+        }
+    } catch { Swal.fire({ icon:'error', title:'ผิดพลาด', text:'ไม่สามารถเชื่อมต่อได้', confirmButtonColor:'#1a3a5c' }); btn.disabled = false; btn.textContent = '✅ ยืนยันรับเงินสด'; }
+}
+
+async function submitPaymentAction(form, confirmText, confirmBtnText, confirmColor) {
+    const result = await Swal.fire({
+        icon: 'question', title: confirmText,
+        showCancelButton: true, confirmButtonText: confirmBtnText, cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: confirmColor, cancelButtonColor: '#94a3b8'
+    });
+    if (!result.isConfirmed) return;
+    const btn = form.querySelector('button'); btn.disabled = true; btn.textContent = '⏳...';
+    try {
+        const data = await _payFetch(form);
+        if (data.ok) {
+            await Swal.fire({ icon:'success', title:'สำเร็จ!', text: data.msg,
+                confirmButtonColor:'#1a3a5c', timer:2000, timerProgressBar:true, showConfirmButton:false });
+            location.reload();
+        } else {
+            Swal.fire({ icon:'error', title:'เกิดข้อผิดพลาด', text: data.msg, confirmButtonColor:'#1a3a5c' });
+            btn.disabled = false;
+        }
+    } catch { Swal.fire({ icon:'error', title:'ผิดพลาด', text:'ไม่สามารถเชื่อมต่อได้', confirmButtonColor:'#1a3a5c' }); btn.disabled = false; }
+}
 </script>
 
 <?php include '../includes/footer.php'; ?>

@@ -32,8 +32,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Username ต้องเป็นภาษาอังกฤษ/ตัวเลข/_ ความยาว 3-30 ตัว';
     } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = 'รูปแบบอีเมลไม่ถูกต้อง';
-    } elseif (strlen($password) < 6) {
-        $error = 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
+    } elseif (strlen($password) < 8) {
+        $error = 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
+    } elseif (!preg_match('/[A-Z]/', $password)) {
+        $error = 'รหัสผ่านต้องมีตัวอักษรพิมพ์ใหญ่อย่างน้อย 1 ตัว';
+    } elseif (!preg_match('/[a-z]/', $password)) {
+        $error = 'รหัสผ่านต้องมีตัวอักษรพิมพ์เล็กอย่างน้อย 1 ตัว';
+    } elseif (!preg_match('/[0-9]/', $password)) {
+        $error = 'รหัสผ่านต้องมีตัวเลขอย่างน้อย 1 ตัว';
     } elseif ($password !== $confirm) {
         $error = 'รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน';
     } elseif ($citizenId && strlen($citizenId) !== 13) {
@@ -304,7 +310,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="form-group">
                 <label>
                     Username <span class="req">*</span>
-                    <span class="hint">(ใช้สำหรับ login — a-z, 0-9, _ เท่านั้น)</span>
+                    <span class="hint">(ใช้สำหรับ login — ตัวอักษรภาษาอังกฤษ, ตัวเลข, _ เท่านั้น สูงสุด 30 ตัว)</span>
                 </label>
                 <input type="text" name="username" placeholder="เช่น john_doe99"
                        value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
@@ -320,7 +326,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="form-row">
                 <div class="form-group">
                     <label>รหัสผ่าน <span class="req">*</span></label>
-                    <input type="password" name="password" placeholder="อย่างน้อย 6 ตัว" required>
+                    <input type="password" name="password" placeholder="อย่างน้อย 8 ตัว (ต้องมีA-Z, a-z, 0-9)" required>
+                    <small style="color:#94a3b8;font-size:.75rem;">ต้องมีตัวพิมพ์ใหญ่ (A-Z), ตัวพิมพ์เล็ก (a-z) และตัวเลข (0-9) อย่างน้อยอย่างละ 1 ตัว</small>
                 </div>
                 <div class="form-group">
                     <label>ยืนยันรหัสผ่าน <span class="req">*</span></label>

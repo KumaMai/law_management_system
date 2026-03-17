@@ -101,7 +101,7 @@ $contractsStmt = $pdo->prepare("
     JOIN client_profiles cp ON cr.client_id = cp.client_id
     JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
     WHERE cr.office_id = ?
-      AND con.status NOT IN ('terminated','rejected','cancelled')
+      AND con.status NOT IN ('completed','terminated','rejected','cancelled')
       AND cr.status NOT IN ('rejected','cancelled')
     ORDER BY con.contract_id DESC
 ");

@@ -626,8 +626,8 @@ if ($_toast) {
           <div class="doc-meta">
             <?php if ($role === 'client'): ?>
               ส่งโดย ทนาย<?= htmlspecialchars($doc['law_fname'].' '.$doc['law_lname']) ?>
-              <?= $doc['specialization'] ? ' · '.$doc['specialization'] : '' ?>
-              <?= $doc['law_phone'] ? ' · 📞 '.$doc['law_phone'] : '' ?>
+              <?= $doc['specialization'] ? ' · '.htmlspecialchars($doc['specialization']) : '' ?>
+              <?= $doc['law_phone'] ? ' · 📞 '.htmlspecialchars($doc['law_phone']) : '' ?>
             <?php else: ?>
               ลูกความ: <?= htmlspecialchars($doc['cli_fname'].' '.$doc['cli_lname']) ?>
               <?php if ($role === 'admin'): ?> · ทนาย: <?= htmlspecialchars($doc['law_fname'].' '.$doc['law_lname']) ?><?php endif; ?>

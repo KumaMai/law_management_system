@@ -37,6 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
 
     // ---- อัปเดตสถานะ ----
     if ($action === 'update_status') {
+        $isAjax    = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
         $hId       = (int)$_POST['hearing_id'];
         $newStatus = $_POST['new_status'] ?? '';
         $note      = trim($_POST['status_note'] ?? '');
@@ -65,10 +66,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
                         ->execute([$orig['fid'], $verdictNote]);
                 }
                 $pdo->prepare("
-                    UPDATE contracts SET status = 'completed', payment_status = 'pending'
+                    UPDATE contracts SET status = 'completed'
                     WHERE contract_id = (SELECT contract_id FROM filings WHERE filing_id = ?)
+                      AND status NOT IN ('completed','terminated')
                 ")->execute([$orig['fid']]);
-                $success = '⚖️ บันทึกคำพิพากษาแล้ว โจทก์ชนะคดี — คดีปิดแล้ว';
+                $success = '⚖️ บันทึกคำพิพากษาแล้ว โจทก์ชนะคดี (จำเลยหลบหนี)';
 
             } elseif (in_array($newStatus, ['defendant_absent','plaintiff_absent']) && !empty($_POST['reschedule_date'])) {
                 $reschedDate = $_POST['reschedule_date'];
@@ -86,6 +88,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
             }
         }
         if (!$success) $error = 'สถานะไม่ถูกต้อง';
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => empty($error), 'msg' => $error ?: $success]);
+            exit;
+        }
     }
 
     // ---- เพิ่มนัดใหม่ (AJAX) ----
@@ -163,6 +171,7 @@ $filingsStmt = $pdo->prepare("
     JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
     JOIN courts ct        ON f.court_id     = ct.court_id
     WHERE cr.office_id = ?
+      AND con.status NOT IN ('completed','terminated')
     ORDER BY f.created_at DESC
 ");
 $filingsStmt->execute([$officeId]);
@@ -338,15 +347,16 @@ setInterval(updateCountdowns, 1000);
                 <td style="white-space:nowrap;">
                     <?php if ($h['status'] === 'scheduled'): ?>
                     <button class="btn btn-sm" style="background:#1a3a5c;color:#fff;margin-bottom:2px;"
-                            onclick="openStatusModal(<?= $h['hearing_id'] ?>,'<?= addslashes($h['case_number'] ?? '') ?>','<?= addslashes($h['client_name']) ?>',<?= $h['hearing_round'] ?>)">
+                            onclick="openStatusModal(<?= $h['hearing_id'] ?>,<?= htmlspecialchars(json_encode($h['case_number'] ?? ''), ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode($h['client_name']), ENT_QUOTES) ?>,<?= $h['hearing_round'] ?>)">
                         📋 อัปเดตสถานะ
                     </button>
                     <?php endif; ?>
-                    <form method="POST" onsubmit="return confirm('ยืนยันการลบนัดนี้?')" style="display:inline;">
+                    <form method="POST" onsubmit="return false;" style="display:inline;">
                         <?= csrf_field() ?>
                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="hearing_id" value="<?= $h['hearing_id'] ?>">
-                        <button type="submit" class="btn btn-sm" style="background:#e74c3c;color:#fff;">🗑️</button>
+                        <button type="button" class="btn btn-sm" style="background:#e74c3c;color:#fff;"
+                                onclick="confirmDeleteHearing(this.closest('form'))">🗑️</button>
                     </form>
                 </td>
                 <?php endif; ?>
@@ -438,7 +448,7 @@ setInterval(updateCountdowns, 1000);
 </div>
 
 <!-- Modal อัปเดตสถานะ (เดิม - ยังคงเป็น regular form POST) -->
-<div class="modal-backdrop" id="modal-status">
+<div style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; align-items:center; justify-content:center;" id="modal-status">
     <div class="modal-box">
         <h3>📋 อัปเดตสถานะการขึ้นศาล</h3>
         <div style="background:#f8fafc;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:0.88rem;color:#555;">
@@ -582,10 +592,14 @@ function openStatusModal(hearingId, caseNo, clientName, round) {
     const next30 = new Date();
     next30.setDate(next30.getDate() + 30);
     document.getElementById('reschedule-date').value = next30.toISOString().split('T')[0];
-    document.getElementById('modal-status').classList.add('open');
+    const backdrop = document.getElementById('modal-status');
+    backdrop.classList.add('open');
+    backdrop.style.display = 'flex';
 }
 function closeStatusModal() {
-    document.getElementById('modal-status').classList.remove('open');
+    const backdrop = document.getElementById('modal-status');
+    backdrop.classList.remove('open');
+    backdrop.style.display = 'none';
 }
 function handleStatusChange(sel) {
     const absentSection = document.getElementById('absent-section');
@@ -603,8 +617,49 @@ function handleStatusChange(sel) {
     }
 }
 document.getElementById('modal-status')?.addEventListener('click', function(e) {
-    if (e.target === this) closeStatusModal();
+    if (e.target === this) { this.style.display = 'none'; }
 });
+
+document.querySelector('#modal-status form')?.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('status-submit-btn');
+    const origText = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...';
+    try {
+        const res  = await fetch(location.pathname, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: new FormData(this)
+        });
+        const data = await res.json();
+        closeStatusModal();
+        if (data.ok) {
+            await Swal.fire({ icon:'success', title:'สำเร็จ!', text: data.msg,
+                confirmButtonColor:'#1a3a5c', timer:2000, timerProgressBar:true, showConfirmButton:false });
+            location.reload();
+        } else {
+            Swal.fire({ icon:'error', title:'เกิดข้อผิดพลาด', text: data.msg, confirmButtonColor:'#1a3a5c' });
+        }
+    } catch {
+        Swal.fire({ icon:'error', title:'ผิดพลาด', text:'ไม่สามารถเชื่อมต่อได้', confirmButtonColor:'#1a3a5c' });
+    } finally {
+        btn.disabled = false; btn.textContent = origText;
+    }
+});
+
+async function confirmDeleteHearing(form) {
+    const result = await Swal.fire({
+        icon: 'warning',
+        title: 'ยืนยันการลบ?',
+        text: 'นัดขึ้นศาลนี้จะถูกลบออกจากระบบ ไม่สามารถกู้คืนได้',
+        showCancelButton: true,
+        confirmButtonText: '🗑️ ลบ',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#e74c3c',
+        cancelButtonColor: '#94a3b8',
+    });
+    if (result.isConfirmed) form.submit();
+}
 
 // auto-open modal เพิ่มนัด ถ้ามี filing_id จาก URL
 window.addEventListener('DOMContentLoaded', () => {

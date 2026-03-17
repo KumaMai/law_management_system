@@ -17,6 +17,7 @@ $success  = '';
 // Handle POST actions
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
     csrf_verify();
     $contractId = (int)($_POST['contract_id'] ?? 0);
     $action     = $_POST['action'] ?? '';
@@ -209,6 +210,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success = '❌ ส่งการปฏิเสธแล้ว ทนายจะได้รับทราบ';
         }
     }
+    if ($isAjax) {
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => empty($error), 'msg' => $error ?: $success]);
+        exit;
+    }
 }
 
 // ==============================
@@ -304,6 +310,7 @@ $pageTitle = 'สัญญาว่าจ้าง';
 include '../includes/header.php';
 ?>
 
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
 .contract-card { border:1px solid #e2e8f0; border-radius:10px; margin-bottom:24px; overflow:hidden; }
 .contract-header { background:#1a3a5c; color:#fff; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
@@ -320,9 +327,6 @@ include '../includes/header.php';
 .modal-box h3 { color:#1a3a5c; margin-bottom:16px; }
 .review-banner { padding:16px 20px; }
 </style>
-
-<?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
-<?php if ($success): ?><div class="alert alert-success"><?= htmlspecialchars($success) ?></div><?php endif; ?>
 
 <div class="card">
     <h2>📄 สัญญาว่าจ้าง</h2>
@@ -342,17 +346,34 @@ include '../includes/header.php';
     ?>
     <div class="contract-card" style="<?= $isPending && $role==='lawyer' ? 'border:2px solid #ffc107;' : ($isRejected ? 'border:2px solid #dc3545; opacity:.85;' : '') ?>">
 
-        <!-- Header -->
-        <div class="contract-header">
-            <span style="font-weight:bold; font-size:1rem;">สัญญา #<?= $c['contract_id'] ?></span>
+        <!-- Clickable Header -->
+        <div class="contract-header"
+             onclick="toggleContract('contract-<?= $c['contract_id'] ?>')"
+             style="cursor:pointer; user-select:none;"
+             onmouseover="this.style.background='#16324f'"
+             onmouseout="this.style.background='#1a3a5c'">
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <span style="font-weight:bold; font-size:1rem;">สัญญา #<?= $c['contract_id'] ?></span>
+                <?php if ($isPending && $role === 'lawyer'): ?>
+                <span style="background:#ffc107;color:#333;padding:2px 10px;border-radius:10px;font-size:.75rem;font-weight:700;">⚠️ รอพิจารณา</span>
+                <?php endif; ?>
+                <?php if ($isRevision && $role === 'client'): ?>
+                <span style="background:#ffc107;color:#333;padding:2px 10px;border-radius:10px;font-size:.75rem;font-weight:700;">⚠️ รอตอบกลับ</span>
+                <?php endif; ?>
+            </div>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex-shrink:0;">
                 <span style="font-size:0.82rem; opacity:.8;"><?= $c['contract_date'] ?? 'ยังไม่ระบุวันที่' ?></span>
                 <span style="padding:4px 14px; border-radius:12px; font-size:0.8rem; font-weight:700;
                              background:<?= $reviewInfo['bg'] ?>; color:<?= $reviewInfo['color'] ?>;">
                     <?= $reviewInfo['text'] ?>
                 </span>
+                <span class="toggle-icon" id="icon-contract-<?= $c['contract_id'] ?>"
+                      style="font-size:1.1rem; color:#94a3b8; transition:transform .25s;">▼</span>
             </div>
         </div>
+
+        <!-- Collapsible Body -->
+        <div id="contract-<?= $c['contract_id'] ?>" style="display:none;">
 
         <!-- Info Grid -->
         <div class="info-grid">
@@ -536,6 +557,7 @@ include '../includes/header.php';
             <?php endif; ?>
         </div>
 
+        </div><!-- end collapsible body -->
     </div>
     <?php endforeach; ?>
 </div>
@@ -722,6 +744,69 @@ function closeModal(id) {
 }
 document.querySelectorAll('.modal-backdrop').forEach(el => {
     el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); });
+});
+
+// AJAX submit สำหรับทุก modal form
+document.querySelectorAll('.modal-backdrop form').forEach(function(form) {
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = this.querySelector('[type="submit"]');
+        const origText = btn ? btn.textContent : '';
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...'; }
+        try {
+            const res  = await fetch(location.pathname, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: new FormData(this)
+            });
+            const data = await res.json();
+            closeModal(this.closest('.modal-backdrop').id);
+            if (data.ok) {
+                await Swal.fire({ icon:'success', title:'สำเร็จ!', text: data.msg,
+                    confirmButtonColor:'#1a3a5c', timer:2000, timerProgressBar:true, showConfirmButton:false });
+                location.reload();
+            } else {
+                Swal.fire({ icon:'error', title:'เกิดข้อผิดพลาด', text: data.msg, confirmButtonColor:'#1a3a5c' });
+            }
+        } catch {
+            Swal.fire({ icon:'error', title:'ผิดพลาด', text:'ไม่สามารถเชื่อมต่อได้', confirmButtonColor:'#1a3a5c' });
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = origText; }
+        }
+    });
+});
+function toggleContract(id) {
+    const body = document.getElementById(id);
+    const cid  = id.replace('contract-', '');
+    const icon = document.getElementById('icon-contract-' + cid);
+    const isOpen = body.style.display !== 'none';
+    body.style.display = isOpen ? 'none' : 'block';
+    if (icon) icon.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+}
+
+// auto-open สัญญาที่ต้องดำเนินการ หรือสัญญาเดียว
+document.addEventListener('DOMContentLoaded', function() {
+    const allBodies = document.querySelectorAll('[id^="contract-"]');
+    let opened = false;
+    allBodies.forEach(function(body) {
+        const cid  = body.id.replace('contract-', '');
+        const icon = document.getElementById('icon-contract-' + cid);
+        const header = body.previousElementSibling;
+        // เปิดถ้า header มี badge รอดำเนินการ (สีเหลือง ffc107)
+        if (header && header.querySelector('[style*="ffc107"]')) {
+            body.style.display = 'block';
+            if (icon) icon.style.transform = 'rotate(180deg)';
+            opened = true;
+        }
+    });
+    // ถ้าไม่มีตัวไหนถูก auto-open และมีแค่สัญญาเดียว → เปิดอัตโนมัติ
+    if (!opened && allBodies.length === 1) {
+        const body = allBodies[0];
+        const cid  = body.id.replace('contract-', '');
+        const icon = document.getElementById('icon-contract-' + cid);
+        body.style.display = 'block';
+        if (icon) icon.style.transform = 'rotate(180deg)';
+    }
 });
 </script>
 

@@ -24,9 +24,10 @@ if (!$clientId) {
     die('<div class="container"><div class="alert alert-error">ไม่พบข้อมูลโปรไฟล์ กรุณาติดต่อผู้ดูแลระบบ</div></div>');
 }
 
-// ดึงสัญญาที่พร้อมส่งเอกสาร
+// ดึงสัญญาที่พร้อมส่งเอกสาร (เฉพาะคดีที่ยังไม่ปิด)
 $contractsStmt = $pdo->prepare("
     SELECT con.contract_id, con.contract_date, con.fee_amount, con.payment_status,
+           con.status AS contract_status,
            cr.request_id, cr.detail, cr.status AS req_status,
            CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
            lp.specialization
@@ -35,6 +36,7 @@ $contractsStmt = $pdo->prepare("
     JOIN lawyer_profiles lp ON cr.lawyer_id    = lp.lawyer_id
     WHERE cr.client_id = ?
       AND cr.status    = 'approved'
+      AND con.status   NOT IN ('completed', 'terminated')
     ORDER BY con.created_at DESC
 ");
 $contractsStmt->execute([$clientId]);
@@ -71,11 +73,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         WHERE con.contract_id = ?
           AND cr.client_id    = ?
           AND cr.status       = 'approved'
+          AND con.status      NOT IN ('completed', 'terminated')
     ");
     $chk->execute([$contractId, $clientId]);
 
     if (!$contractId || !$docType || !$chk->fetch()) {
-        $error = 'ข้อมูลไม่ถูกต้อง หรือทนายยังไม่รับคำขอ กรุณาลองใหม่';
+        $error = 'ไม่สามารถส่งเอกสารได้ คดีนี้ปิดแล้วหรือไม่มีสิทธิ์ กรุณาลองใหม่';
     } elseif (empty($_FILES['document']['name'])) {
         $error = 'กรุณาเลือกไฟล์ที่ต้องการส่ง';
     } else {
@@ -189,13 +192,29 @@ include '../includes/header.php';
     </div>
     <?php endif; ?>
 
-    <!-- ไม่มีสัญญา -->
+    <!-- ไม่มีสัญญาที่ส่งได้ -->
     <?php if (empty($contracts)): ?>
     <div style="text-align:center;padding:32px;color:#888;">
         <div style="font-size:3rem;margin-bottom:12px;">📋</div>
+        <?php
+        // ตรวจว่ามีสัญญา completed อยู่ไหม
+        $hasCompleted = $pdo->prepare("
+            SELECT COUNT(*) FROM contracts con
+            JOIN case_requests cr ON con.request_id = cr.request_id
+            WHERE cr.client_id = ? AND con.status IN ('completed','terminated')
+        ");
+        $hasCompleted->execute([$clientId]);
+        $completedCount = (int)$hasCompleted->fetchColumn();
+        ?>
+        <?php if ($completedCount > 0): ?>
+        <p style="font-weight:600;color:#475569;">คดีทั้งหมดของคุณปิดแล้ว</p>
+        <p style="font-size:.85rem;margin-top:4px;color:#94a3b8;">ไม่สามารถส่งเอกสารเพิ่มเติมได้ หากทนายต้องการเอกสารเพิ่ม จะส่งให้ผ่านหน้าเอกสารสำคัญ</p>
+        <a href="/pages/client_sign_docs.php" class="btn btn-primary" style="margin-top:16px;">📄 ดูเอกสารสำคัญ</a>
+        <?php else: ?>
         <p style="font-weight:600;color:#475569;">ยังไม่มีสัญญาที่พร้อมส่งเอกสาร</p>
         <p style="font-size:.85rem;margin-top:4px;color:#94a3b8;">ทนายต้องรับคำขอของคุณก่อน จึงจะส่งเอกสารได้</p>
         <a href="/pages/send_request.php" class="btn btn-primary" style="margin-top:16px;">📨 ส่งคำขอว่าจ้าง</a>
+        <?php endif; ?>
     </div>
     <?php endif; ?>
 
@@ -245,6 +264,12 @@ include '../includes/header.php';
             <!-- เลือกสัญญา -->
             <div class="form-group">
                 <label>เลือกสัญญา / คดี <span style="color:red">*</span></label>
+                <?php if (empty($contracts)): ?>
+                <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:14px;font-size:.88rem;color:#856404;">
+                    ⚠️ ไม่มีคดีที่สามารถส่งเอกสารได้ในขณะนี้<br>
+                    <span style="font-size:.82rem;color:#666;margin-top:4px;display:block;">คดีทั้งหมดของคุณปิดแล้ว หากต้องการส่งเอกสารเพิ่มเติม กรุณาติดต่อทนายผ่านหน้า <a href="/pages/client_sign_docs.php" style="color:#1a3a5c;font-weight:700;">เอกสารสำคัญ</a></span>
+                </div>
+                <?php else: ?>
                 <select name="contract_id" id="modal-contract-select" required onchange="showContractInfo(this)">
                     <option value="">-- เลือกคดีที่ต้องการส่งเอกสาร --</option>
                     <?php foreach ($contracts as $c): ?>
@@ -253,10 +278,11 @@ include '../includes/header.php';
                         data-spec="<?= htmlspecialchars($c['specialization'] ?? '—') ?>"
                         data-detail="<?= htmlspecialchars(mb_substr($c['detail'], 0, 80)) ?>...">
                         สัญญา #<?= $c['contract_id'] ?> — ทนาย <?= htmlspecialchars($c['lawyer_name']) ?>
-                        <?= $c['contract_date'] ? '(' . $c['contract_date'] . ')' : '' ?>
+                        <?= $c['contract_date'] ? '(' . htmlspecialchars($c['contract_date']) . ')' : '' ?>
                     </option>
                     <?php endforeach; ?>
                 </select>
+                <?php endif; ?>
             </div>
 
             <!-- Info card -->

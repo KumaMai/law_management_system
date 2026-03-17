@@ -34,9 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$lawyerId || !$detail) {
         $error = 'กรุณาเลือกทนายและกรอกรายละเอียดคดี';
     } else {
+        // บล็อกเฉพาะคำขอที่ pending หรือ approved ซึ่งสัญญายังไม่ปิด
+        // ถ้าคดีเดิม completed/terminated แล้ว → ส่งคำขอใหม่ได้
         $chk = $pdo->prepare("
-            SELECT request_id FROM case_requests
-            WHERE client_id = ? AND lawyer_id = ? AND status IN ('pending','approved')
+            SELECT cr.request_id FROM case_requests cr
+            LEFT JOIN contracts con ON con.request_id = cr.request_id
+            WHERE cr.client_id = ? AND cr.lawyer_id = ?
+              AND cr.status IN ('pending','approved')
+              AND (con.contract_id IS NULL OR con.status NOT IN ('completed','terminated'))
         ");
         $chk->execute([$clientId, $lawyerId]);
         if ($chk->fetch()) {

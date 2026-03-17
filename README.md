@@ -1,34 +1,73 @@
-# ระบบจัดการคดีความ (Law Case Management System)
+# ⚖️ ระบบจัดการคดีความ (Law Case Management System)
 
-## Tech Stack
-- **Backend:** PHP 8.2
-- **Database:** MySQL 8.0
-- **Web Server:** Nginx (Alpine)
-- **Runtime:** Docker + Docker Compose
-- **Frontend:** Vanilla JS, HTML/CSS + SweetAlert2
-- **PDF Export:** wkhtmltopdf + qpdf (merge)
-- **Font:** Sarabun (ภาษาไทย)
+**สำนักงานพันชรรม | Project Document v4.0 — March 2026**
 
 ---
 
-## โครงสร้างโปรเจค
+## Tech Stack
+
+| Component | Detail |
+|---|---|
+| Backend | PHP 8.2 (FPM) |
+| Database | MySQL 8.0 |
+| Web Server | Nginx Alpine |
+| Runtime | Docker + Docker Compose |
+| Frontend | Vanilla JS, HTML/CSS + SweetAlert2 |
+| PDF Export | wkhtmltopdf + qpdf (merge) + Sarabun font |
+
+---
+
+## Docker Containers
+
+| Container | Image | Port |
+|---|---|---|
+| `law_php` | php:8.2-fpm (custom) | 9000 |
+| `law_nginx` | nginx:alpine | 8080→80 |
+| `law_db` | mysql:8.0 | 3306→3306 |
+| `law_phpmyadmin` | phpmyadmin | 8081→80 |
+
+### คำสั่ง Docker ที่ใช้บ่อย
+```bash
+docker-compose up -d
+docker-compose down
+docker-compose ps
+docker exec law_nginx nginx -s reload
+docker logs law_nginx
+docker exec -it law_php bash
+```
+
+---
+
+## URL & ข้อมูลเข้าถึง
+
+- **Web App:** http://localhost:8080
+- **phpMyAdmin:** http://localhost:8081 | Database: `law_system`
+
+| Role | Username | Password | Email |
+|---|---|---|---|
+| Admin | `admin` | `admin1234` | admin@admin.com |
+| Lawyer 1 | `test` | (ตั้งตอนสร้าง) | test@gmail.com |
+| Lawyer 2 | `aut` | (ตั้งตอนสร้าง) | AutAuttapon@gmail.com |
+| Client | `KumaMai` | (ตั้งตอนสมัคร) | — |
+
+---
+
+## โครงสร้างไฟล์
 
 ```
 law_management_system/
 ├── docker-compose.yml
 ├── docker/
-│   ├── nginx/
-│   │   └── default.conf
-│   └── php/
-│       └── Dockerfile
+│   ├── nginx/default.conf        ← security headers
+│   └── php/Dockerfile
 └── src/
     ├── index.php
     ├── assets/css/style.css
     ├── config/
-    │   ├── db.php
-    │   ├── auth.php
+    │   ├── db.php                 ← PDO connection
+    │   ├── auth.php               ← requireLogin(), requireRole()
     │   ├── csrf_helper.php        ← CSRF protection
-    │   └── file_upload_helper.php ← MIME type validation
+    │   └── file_upload_helper.php ← MIME validation
     ├── includes/
     │   ├── header.php
     │   └── footer.php
@@ -51,71 +90,58 @@ law_management_system/
 
 ---
 
-## Docker Containers
-
-| Container | Image | Port |
-|---|---|---|
-| `law_php` | php:8.2-fpm (custom) | 9000 |
-| `law_nginx` | nginx:alpine | 8080 |
-| `law_db` | mysql:8.0 | 3306 |
-| `law_phpmyadmin` | phpmyadmin | 8081 |
-
-### คำสั่ง Docker ที่ใช้บ่อย
-
-```bash
-docker-compose up -d
-docker-compose down
-docker-compose ps
-docker exec law_nginx nginx -s reload
-docker logs law_nginx
-docker exec -it law_php bash
-```
-
----
-
-## URL และข้อมูลเข้าถึง
-
-- **Web App:** http://localhost:8080
-- **phpMyAdmin:** http://localhost:8081
-- **Database:** `law_system`
-
-| Role | Username | Password |
-|---|---|---|
-| Admin | `admin` | `admin1234` |
-| Lawyer 1 | `test` | (ตั้งตอนสร้าง) |
-| Lawyer 2 | `aut` | (ตั้งตอนสร้าง) |
-| Client | `KumaMai` | (ตั้งตอนสมัคร) |
-
----
-
-## Flow การทำงาน
+## Flow การทำงานหลัก (13 ขั้นตอน)
 
 ```
 1.  Admin สร้างบัญชีทนาย (lawyers.php)
-2.  ลูกความสมัคร (register.php) หรือ Admin สร้างให้ (clients.php)
+2.  ลูกความสมัครเอง (register.php) หรือ Admin สร้างให้ (clients.php)
 3.  ลูกความส่งคำขอว่าจ้างทนาย (send_request.php) — หมดอายุ 14 วัน
-4.  ทนายรับ/ปฏิเสธ (case_requests.php) → รับแล้วระบบสร้าง Contract อัตโนมัติ
-5.  ลูกความอัปโหลดเอกสาร (contract_documents.php)
-6.  ทนายยืนยัน/ตีกลับ/ต่อรองราคาสัญญา (contracts.php)
-7.  ทนายยื่นฟ้อง (filings.php) → นัดขึ้นศาล (hearings.php)
-8.  บันทึกคำพิพากษา (Verdicts.php) → คดีปิด
-9.  ลูกความชำระเงิน (payments.php) — QR/โอน/เงินสด Transaction-safe
-10. ทนายส่งเอกสารให้เซ็น (client_sign_docs.php) ← ลูกความส่ง PDF กลับ
-11. Export PDF สำนวนคดี (Case_summary.php) — merge ได้ด้วย qpdf
-12. ลูกความรีวิวทนาย (dashboard.php) — 1-5 ดาว
+    → ส่งซ้ำได้เฉพาะทนายคนอื่น หรือถ้าคดีเดิม completed/terminated แล้ว
+4.  ทนายรับ/ปฏิเสธคำขอ (case_requests.php)
+    → รับ: ระบบสร้าง Contract อัตโนมัติ (status = active, contract_review_status = pending_lawyer_review)
+5.  ลูกความอัปโหลดเอกสารสัญญา (contract_documents.php)
+    → ส่งได้เฉพาะคดีที่ยังไม่ปิด (contracts.status NOT IN completed/terminated)
+6.  ทนายพิจารณาสัญญา (contracts.php) — ต่อรองราคาได้หลายรอบ
+    → ยืนยันรับ → revision_requested ↔ negotiating → finalize
+    → ปฏิเสธ: contract terminated + case_request rejected
+7.  ทนายยื่นฟ้อง (filings.php) — 1 contract = 1 filing
+    → dropdown แสดงเฉพาะคดียังไม่ปิด
+8.  นัดขึ้นศาล (hearings.php)
+    → ขาดนัด: สร้างนัดใหม่ hearing_round+1 อัตโนมัติ
+    → จำเลยหลบหนี: ปิดคดีทันที (contracts.status = completed)
+    → dropdown แสดงเฉพาะคดียังไม่ปิด
+9.  บันทึกคำพิพากษา (Verdicts.php)
+    → contracts.status = completed ทันที (ไม่ขึ้นกับการจ่ายเงิน)
+10. ลูกความชำระเงิน (payments.php) — QR/โอน/เงินสด Transaction+FOR UPDATE
+    → จ่ายครบ + มี verdict: contracts.payment_status = paid
+    → validation: ถ้าเลือก "จ่ายเต็มจำนวน" แต่ยอดไม่ตรง → แจ้งเตือน Swal
+11. ทนายส่งเอกสารให้เซ็น (client_sign_docs.php) ← ลูกความส่ง PDF กลับ
+12. Export PDF สำนวนคดี (Case_summary.php) — wkhtmltopdf + qpdf merge
+13. ลูกความรีวิวทนาย (dashboard.php) — 1-5 ดาว (รีวิวได้หลังคดีปิดแล้วเท่านั้น)
 ```
 
-### สถานะสำคัญ
+### สถานะสำคัญในระบบ
 
 ```
-case_requests:    pending → approved / rejected / expired
-contracts:        pending_lawyer_review → lawyer_accepted
-                  → revision_requested ↔ negotiating → finalized
-                  → lawyer_rejected / terminated
-contracts.status: active → completed
-payments:         pending → confirmed / rejected
-client_sign_docs: pending → acknowledged → signed / rejected
+case_requests.status:
+  pending → approved / rejected / expired
+
+contracts.contract_review_status:
+  pending_lawyer_review → lawyer_accepted
+  → revision_requested ↔ negotiating → finalized
+  → lawyer_rejected
+
+contracts.status:       active → completed / terminated
+contracts.payment_status: pending → partial → paid
+
+payments.status:        pending → confirmed / rejected
+
+client_sign_docs.status: pending → acknowledged → signed / rejected
 ```
+
+### ความหมายของ contracts.status = 'completed'
+คดีถือว่าปิดเมื่อ **มีคำพิพากษา** เท่านั้น (Verdicts.php หรือ defendant_guilty_verdict ใน hearings.php)
+การจ่ายเงินครบเพียงอย่างเดียวไม่ทำให้คดีปิด — สามารถจ่ายก่อนหรือหลัง verdict ได้
 
 ---
 
@@ -128,25 +154,23 @@ client_sign_docs: pending → acknowledged → signed / rejected
 | Session Fixation | 🔴 Critical | login.php |
 | Missing Authorization (ทนายอนุมัติคดีคนอื่น) | 🔴 Critical | case_requests.php |
 | IDOR ใน payments | 🔴 Critical | payments.php |
-| Race Condition ใน payments | 🟠 High | payments.php (Transaction) |
+| Race Condition ใน payments | 🟠 High | payments.php (Transaction+FOR UPDATE) |
 | File Upload ตรวจแค่ extension | 🟠 High | payments.php, client_sign_docs.php |
-| CSRF ทุกฟอร์ม POST (19 ไฟล์) | 🟡 Medium | ทุกไฟล์ |
-| Rate Limiting (login brute force) | 🟡 Medium | login.php |
-| Verbose Error ใน clients.php | 🟡 Medium | clients.php ✅ |
-| Verbose Error ใน register.php | 🟡 Medium | register.php ✅ |
-| Sensitive Data — citizen_id แสดงเต็ม | 🟡 Medium | clients.php ✅ mask display |
+| CSRF ทุกฟอร์ม POST | 🟡 Medium | ทุกไฟล์ |
+| Rate Limiting (login brute force 10ครั้ง/15นาที) | 🟡 Medium | login.php |
+| XSS ทุกจุด output ข้อมูล user | 🟡 Medium | ทุกไฟล์ ✅ |
+| addslashes() ใน onclick → json_encode() | 🟡 Medium | hearings.php, Verdicts.php, clients.php, lawyers.php |
+| Verbose Error | 🟡 Medium | clients.php, register.php ✅ |
+| Sensitive Data citizen_id แสดงเต็ม | 🟡 Medium | clients.php ✅ mask display |
 | Logout ไม่ลบ Session Cookie | 🟢 Low | logout.php |
 | Missing Security Headers | 🟢 Low | nginx/default.conf |
 | PHP execute ใน uploads folder | 🟢 Low | nginx/default.conf |
-| Missing Foreign Keys | 🟢 Low | ✅ รัน migrate_add_missing_fk.sql แล้ว |
+| Missing Foreign Keys | 🟢 Low | migrate_add_missing_fk.sql ✅ |
 
-### Bug Fixes
-
-| Bug | ไฟล์ | รายละเอียด |
-|---|---|---|
-| `$_SESSION['user_email']` key ผิด | Case_summary.php | แก้เป็น `$_SESSION['email']` |
-| `status='accepted'` ผิด | Profile.php | แก้เป็น `status='approved'` |
-| ปุ่ม "ปฏิเสธสัญญา" condition ซ้ำซ้อน | contracts.php | ลบ if ซ้อนออก |
+### Password Complexity (v4.0 ใหม่)
+- อย่างน้อย **8 ตัวอักษร**
+- ต้องมีตัวพิมพ์ใหญ่ (A-Z), ตัวพิมพ์เล็ก (a-z), ตัวเลข (0-9)
+- ใช้กับ: register.php, lawyers.php, clients.php
 
 ### Security Headers ใน Nginx
 ```nginx
@@ -161,40 +185,52 @@ location ~* ^/uploads/.*\.php$ { deny all; return 403; }
 
 ---
 
-## UI/UX Updates ✅
+## UI/UX Updates (v4.0)
 
-### Pattern มาตรฐาน (ทุกฟอร์มเพิ่มข้อมูล)
-- ปุ่ม ➕ อยู่มุมขวาบน → คลิกเปิด Modal popup
-- Submit ผ่าน AJAX + SweetAlert2 ✅ / ❌ ไม่ reload หน้า
-- PHP detect `HTTP_X_REQUESTED_WITH` → return JSON
+### Pattern มาตรฐาน — Modal + AJAX + SweetAlert2
+ทุกฟอร์มบันทึกข้อมูลในระบบใช้ pattern เดียวกัน:
+- ปุ่ม ➕ มุมขวาบน → เปิด Modal popup
+- Submit ผ่าน `fetch()` + `X-Requested-With: XMLHttpRequest`
+- PHP ตรวจ `$isAjax` → return JSON `{ok: bool, msg: string}`
+- SweetAlert2: ✅ success (timer 2s) / ❌ error
+- Auto-reload หลัง success
 
-### ไฟล์ที่ปรับแล้ว
+### Collapsible Cards
+- `contracts.php` — header กดซ่อน/แสดง body พร้อม arrow ▼/▲
+- `my_cases.php` — collapsible auto-open คดีที่ ⚠️ รอตอบกลับ
+- `Verdicts.php` — collapsible pending/verdicted cards
 
-| ไฟล์ | การเปลี่ยนแปลง |
+### Dashboard Widgets ใหม่ (v4.0)
+| Role | Widget |
 |---|---|
-| lawyers.php | Modal + AJAX + SweetAlert2, Username field + validate |
-| clients.php | Modal + AJAX + SweetAlert2, Username field, citizen_id mask |
-| send_request.php | ฟอร์มส่งคำขอ → Modal + AJAX |
-| contract_documents.php | ฟอร์มส่งเอกสาร → Modal + AJAX + file upload |
-| filings.php | ฟอร์มยื่นฟ้อง → Modal + AJAX + court custom dropdown + keyboard nav |
-| hearings.php | ฟอร์มเพิ่มนัด → Modal + AJAX, real-time countdown |
-| my_cases.php | Cards → Collapsible toggle, auto-open ⚠️ รอตอบกลับ |
-| Verdicts.php | Cards → Collapsible toggle, header แสดงผลคำพิพากษา |
+| Admin | ⏰ คำขอ pending ใกล้หมดอายุ 3 วัน |
+| Admin | 🏛️ นัดขึ้นศาล 7 วันข้างหน้าของสำนักงาน |
+| ทนาย | ⚡ Action items รอดำเนินการ (สัญญา/payment) |
+| ทนาย | 🏛️ นัดขึ้นศาล 7 วันข้างหน้าของตัวเอง |
+| ลูกความ | 🏛️ นัดขึ้นศาล 30 วันข้างหน้า |
+| ลูกความ | 💳 ยอดค้างชำระแต่ละคดี + progress bar |
 
----
-
-## TODO ที่ยังค้างอยู่
-
-- [ ] Password complexity (ตอนนี้แค่ 6 ตัว) — รอหลัง go-live
-- [ ] ตรวจ XSS ทุกจุดที่ output ข้อมูล user
+### Business Logic Fixes (v4.0)
+| ไฟล์ | สิ่งที่แก้ |
+|---|---|
+| send_request.php | ส่งคำขอหาทนายคนเดิมได้ถ้าคดีเดิม completed/terminated แล้ว |
+| contract_documents.php | ไม่แสดงคดีปิดแล้วใน dropdown + บล็อก server-side |
+| filings.php | ไม่แสดงคดีปิดแล้วใน dropdown |
+| hearings.php | ไม่แสดงคดีปิดแล้วใน dropdown |
+| Verdicts.php | บันทึก verdict → contracts.status = completed ทันที (ไม่รอ payment) |
+| hearings.php | defendant_guilty_verdict → contracts.status = completed ทันที |
+| payments.php | จ่ายครบ + มี verdict → completed (รองรับจ่ายหลังคดีจบ) |
+| payments.php | validate "จ่ายเต็มจำนวน" — auto-fill / warn ถ้ายอดไม่ตรง |
+| my_cases.php | badge แสดง "คดีปิดแล้ว" ถ้า contract.status = completed |
+| dashboard.php | รีวิวทนายได้เฉพาะหลังคดีปิด (has_completed check) |
 
 ---
 
 ## หมายเหตุสำคัญ
 
-- `index.php` ต้องไม่มี `<!-- index.php -->` บรรทัดแรก (ทำให้ session error)
+- `index.php` บรรทัดแรกต้องเป็น `<?php` เท่านั้น (ไม่มี HTML comment)
 - `nginx/default.conf` ต้องใช้ `root /var/www/html;` (ไม่ใช่ `/var/www/html/src`)
 - ทุกฟอร์ม POST ต้องมี `<?= csrf_field() ?>` และทุก handler ต้องมี `csrf_verify()`
 - File upload ทุกที่ต้องใช้ `validateUpload()` จาก `file_upload_helper.php`
-- Windows CMD ไม่รองรับ `&&` — ต้องรันคำสั่งแยกทีละบรรทัด
-- `docker-compose restart nginx` ใช้ service name ไม่ใช่ container name (`law_nginx`)
+- Windows CMD ไม่รองรับ `&&` — รันคำสั่งแยกทีละบรรทัด
+- `docker-compose restart nginx` ใช้ service name ไม่ใช่ container name

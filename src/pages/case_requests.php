@@ -18,7 +18,7 @@ $officeId = $_SESSION['office_id'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $role === 'lawyer') {
 
-    // ── ตรวจ CSRF ──
+    $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
     csrf_verify();
 
     $requestId = (int)($_POST['request_id'] ?? 0);
@@ -63,6 +63,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $role === 'lawyer') {
         ")->execute([$reason, $requestId, $lawyerId]);
     }
 
+    if ($isAjax) {
+        header('Content-Type: application/json');
+        $msg = $action === 'approve' ? '✅ รับคำขอเรียบร้อยแล้ว ระบบสร้างสัญญาให้อัตโนมัติ' : '❌ ปฏิเสธคำขอเรียบร้อยแล้ว';
+        echo json_encode(['ok' => true, 'msg' => $msg]);
+        exit;
+    }
     header('Location: /pages/case_requests.php');
     exit;
 }
@@ -117,7 +123,10 @@ if ($role === 'admin') {
 $requests  = $stmt->fetchAll();
 $pageTitle = 'คำขอว่าจ้างทนาย';
 include '../includes/header.php';
+?>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
+<?php
 $badgeMap = ['pending'=>'badge-pending','approved'=>'badge-approved','rejected'=>'badge-rejected','expired'=>'badge-expired'];
 $statusTH = ['pending'=>'รอดำเนินการ','approved'=>'อนุมัติแล้ว','rejected'=>'ปฏิเสธแล้ว','expired'=>'หมดอายุ'];
 ?>
@@ -153,18 +162,20 @@ $statusTH = ['pending'=>'รอดำเนินการ','approved'=>'อน�
                 </td>
                 <?php if ($role === 'lawyer' && $r['status'] === 'pending'): ?>
                 <td>
-                    <form method="POST" style="display:inline;">
+                    <form style="display:inline;">
                         <?= csrf_field() ?>
                         <input type="hidden" name="request_id" value="<?= $r['request_id'] ?>">
                         <input type="hidden" name="action" value="approve">
-                        <button class="btn btn-success btn-sm">✔ รับ</button>
+                        <button type="button" class="btn btn-success btn-sm"
+                                onclick="submitRequest(this.closest('form'))">✔ รับ</button>
                     </form>
-                    <form method="POST" style="display:inline;" onsubmit="return promptReject(this)">
+                    <form style="display:inline;">
                         <?= csrf_field() ?>
                         <input type="hidden" name="request_id" value="<?= $r['request_id'] ?>">
                         <input type="hidden" name="action" value="reject">
                         <input type="hidden" name="reject_reason" class="reject-reason" value="">
-                        <button class="btn btn-danger btn-sm">✘ ปฏิเสธ</button>
+                        <button type="button" class="btn btn-danger btn-sm"
+                                onclick="promptReject(this.closest('form'))">✘ ปฏิเสธ</button>
                     </form>
                 </td>
                 <?php elseif ($role === 'lawyer'): ?>
@@ -179,11 +190,46 @@ $statusTH = ['pending'=>'รอดำเนินการ','approved'=>'อน�
 </div>
 
 <script>
-function promptReject(form) {
-    const reason = prompt('กรุณาระบุเหตุผลในการปฏิเสธ:');
-    if (reason === null) return false;
+async function submitRequest(form) {
+    const btn = form.querySelector('button');
+    const origText = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳...';
+    try {
+        const res  = await fetch(location.pathname, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: new FormData(form)
+        });
+        const data = await res.json();
+        if (data.ok) {
+            await Swal.fire({ icon:'success', title:'สำเร็จ!', text: data.msg,
+                confirmButtonColor:'#1a3a5c', timer:2000, timerProgressBar:true, showConfirmButton:false });
+            location.reload();
+        } else {
+            Swal.fire({ icon:'error', title:'เกิดข้อผิดพลาด', text: data.msg, confirmButtonColor:'#1a3a5c' });
+            btn.disabled = false; btn.textContent = origText;
+        }
+    } catch {
+        Swal.fire({ icon:'error', title:'ผิดพลาด', text:'ไม่สามารถเชื่อมต่อได้', confirmButtonColor:'#1a3a5c' });
+        btn.disabled = false; btn.textContent = origText;
+    }
+}
+
+async function promptReject(form) {
+    const { value: reason, isConfirmed } = await Swal.fire({
+        title: 'ระบุเหตุผลในการปฏิเสธ',
+        input: 'textarea',
+        inputPlaceholder: 'เหตุผล...',
+        showCancelButton: true,
+        confirmButtonText: '✘ ยืนยันปฏิเสธ',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#94a3b8',
+        inputValidator: v => !v && 'กรุณาระบุเหตุผล'
+    });
+    if (!isConfirmed) return;
     form.querySelector('.reject-reason').value = reason;
-    return true;
+    submitRequest(form);
 }
 </script>
 

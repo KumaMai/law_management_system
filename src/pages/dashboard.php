@@ -182,11 +182,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'revie
     $cpRow->execute([$userId]);
     $cid = $cpRow->fetchColumn();
 
-    // ตรวจว่าเคยว่าจ้างทนายนี้จริง
+    // ตรวจว่าเคยว่าจ้างทนายนี้จริง และคดีปิดแล้ว (contract completed) เท่านั้นถึงรีวิวได้
     $chk = $pdo->prepare("
         SELECT 1 FROM case_requests cr
         JOIN client_profiles cp ON cr.client_id = cp.client_id
+        JOIN contracts c ON c.request_id = cr.request_id
         WHERE cr.lawyer_id=? AND cp.user_id=? AND cr.office_id=?
+          AND c.status = 'completed'
         LIMIT 1
     ");
     $chk->execute([$lawyerId, $userId, $officeId]);
@@ -238,9 +240,11 @@ if ($role === 'client') {
                    ROUND(COALESCE(AVG(r.rating),0),1) AS avg_rating,
                    COUNT(r.review_id) AS review_count,
                    (SELECT rating  FROM lawyer_reviews WHERE lawyer_id=lp.lawyer_id AND client_id=?) AS my_rating,
-                   (SELECT comment FROM lawyer_reviews WHERE lawyer_id=lp.lawyer_id AND client_id=?) AS my_comment
+                   (SELECT comment FROM lawyer_reviews WHERE lawyer_id=lp.lawyer_id AND client_id=?) AS my_comment,
+                   MAX(CASE WHEN c.status='completed' THEN 1 ELSE 0 END) AS has_completed
             FROM case_requests cr
             JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
+            JOIN contracts c ON c.request_id = cr.request_id
             LEFT JOIN lawyer_reviews r ON lp.lawyer_id = r.lawyer_id
             WHERE cr.client_id=? AND cr.office_id=?
             GROUP BY lp.lawyer_id
@@ -251,7 +255,8 @@ if ($role === 'client') {
         $s = $pdo->prepare("
             SELECT DISTINCT lp.lawyer_id, lp.fname, lp.lname, lp.specialization,
                    lp.phone, lp.profile_photo, lp.bio, lp.experience_yr,
-                   0 AS avg_rating, 0 AS review_count, NULL AS my_rating, NULL AS my_comment
+                   0 AS avg_rating, 0 AS review_count, NULL AS my_rating, NULL AS my_comment,
+                   0 AS has_completed
             FROM case_requests cr
             JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
             WHERE cr.client_id=? AND cr.office_id=?
@@ -420,6 +425,168 @@ if ($role === 'admin') {
     } catch (Exception $e) {}
 }
 
+// ==============================
+// Admin: คำขอ pending ใกล้หมดอายุ (3 วัน)
+// ==============================
+$expiringRequests = [];
+if ($role === 'admin') {
+    try {
+        $eq = $pdo->prepare("
+            SELECT cr.request_id, cr.expire_date,
+                   CONCAT(cp.fname,' ',cp.lname) AS client_name,
+                   CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
+                   DATEDIFF(cr.expire_date, CURDATE()) AS days_left
+            FROM case_requests cr
+            JOIN client_profiles cp ON cr.client_id = cp.client_id
+            JOIN lawyer_profiles lp ON cr.lawyer_id  = lp.lawyer_id
+            WHERE cr.office_id = ? AND cr.status = 'pending'
+              AND cr.expire_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
+            ORDER BY cr.expire_date ASC
+        ");
+        $eq->execute([$officeId]);
+        $expiringRequests = $eq->fetchAll();
+    } catch (Exception $e) {}
+}
+
+// ==============================
+// Admin + ทนาย + ลูกความ: นัดขึ้นศาลที่กำลังจะมา
+// ==============================
+$upcomingHearingsDash = [];
+if ($role === 'admin') {
+    try {
+        $hq = $pdo->prepare("
+            SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.hearing_round,
+                   f.case_number, ct.court_name,
+                   CONCAT(cp.fname,' ',cp.lname) AS client_name,
+                   CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
+                   DATEDIFF(ch.hearing_date, CURDATE()) AS days_left
+            FROM court_hearings ch
+            JOIN filings f        ON ch.filing_id    = f.filing_id
+            JOIN contracts con    ON f.contract_id   = con.contract_id
+            JOIN case_requests cr ON con.request_id  = cr.request_id
+            JOIN client_profiles cp ON cr.client_id  = cp.client_id
+            JOIN lawyer_profiles lp ON cr.lawyer_id  = lp.lawyer_id
+            JOIN courts ct        ON f.court_id      = ct.court_id
+            WHERE cr.office_id = ? AND ch.status = 'scheduled'
+              AND ch.hearing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+            ORDER BY ch.hearing_date ASC, ch.hearing_time ASC
+        ");
+        $hq->execute([$officeId]);
+        $upcomingHearingsDash = $hq->fetchAll();
+    } catch (Exception $e) {}
+} elseif ($role === 'lawyer' && $lawyerIdDash) {
+    try {
+        $hq = $pdo->prepare("
+            SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.hearing_round,
+                   f.case_number, ct.court_name,
+                   CONCAT(cp.fname,' ',cp.lname) AS client_name,
+                   DATEDIFF(ch.hearing_date, CURDATE()) AS days_left
+            FROM court_hearings ch
+            JOIN filings f        ON ch.filing_id    = f.filing_id
+            JOIN contracts con    ON f.contract_id   = con.contract_id
+            JOIN case_requests cr ON con.request_id  = cr.request_id
+            JOIN client_profiles cp ON cr.client_id  = cp.client_id
+            JOIN courts ct        ON f.court_id      = ct.court_id
+            WHERE cr.lawyer_id = ? AND ch.status = 'scheduled'
+              AND ch.hearing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+            ORDER BY ch.hearing_date ASC, ch.hearing_time ASC
+        ");
+        $hq->execute([$lawyerIdDash]);
+        $upcomingHearingsDash = $hq->fetchAll();
+    } catch (Exception $e) {}
+} elseif ($role === 'client' && $clientId) {
+    try {
+        $hq = $pdo->prepare("
+            SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.hearing_round,
+                   f.case_number, ct.court_name,
+                   CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
+                   DATEDIFF(ch.hearing_date, CURDATE()) AS days_left
+            FROM court_hearings ch
+            JOIN filings f        ON ch.filing_id    = f.filing_id
+            JOIN contracts con    ON f.contract_id   = con.contract_id
+            JOIN case_requests cr ON con.request_id  = cr.request_id
+            JOIN lawyer_profiles lp ON cr.lawyer_id  = lp.lawyer_id
+            JOIN courts ct        ON f.court_id      = ct.court_id
+            WHERE cr.client_id = ? AND ch.status = 'scheduled'
+              AND ch.hearing_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+            ORDER BY ch.hearing_date ASC, ch.hearing_time ASC
+        ");
+        $hq->execute([$clientId]);
+        $upcomingHearingsDash = $hq->fetchAll();
+    } catch (Exception $e) {}
+}
+
+// ==============================
+// ทนาย: action items ที่รอดำเนินการ
+// ==============================
+$lawyerActionItems = [];
+if ($role === 'lawyer' && $lawyerIdDash) {
+    try {
+        // สัญญารอ finalize (negotiating)
+        $aq1 = $pdo->prepare("
+            SELECT 'finalize' AS type, c.contract_id, c.contract_review_status,
+                   CONCAT(cp.fname,' ',cp.lname) AS client_name
+            FROM contracts c
+            JOIN case_requests cr ON c.request_id = cr.request_id
+            JOIN client_profiles cp ON cr.client_id = cp.client_id
+            WHERE cr.lawyer_id = ? AND c.contract_review_status = 'negotiating'
+        ");
+        $aq1->execute([$lawyerIdDash]);
+        foreach ($aq1->fetchAll() as $r) $lawyerActionItems[] = $r;
+
+        // สัญญา pending_lawyer_review
+        $aq2 = $pdo->prepare("
+            SELECT 'review_contract' AS type, c.contract_id, c.contract_review_status,
+                   CONCAT(cp.fname,' ',cp.lname) AS client_name
+            FROM contracts c
+            JOIN case_requests cr ON c.request_id = cr.request_id
+            JOIN client_profiles cp ON cr.client_id = cp.client_id
+            WHERE cr.lawyer_id = ? AND c.contract_review_status = 'pending_lawyer_review'
+        ");
+        $aq2->execute([$lawyerIdDash]);
+        foreach ($aq2->fetchAll() as $r) $lawyerActionItems[] = $r;
+
+        // payment รอยืนยัน
+        $aq3 = $pdo->prepare("
+            SELECT 'payment' AS type, p.payment_id, p.amount, c.contract_id,
+                   CONCAT(cp.fname,' ',cp.lname) AS client_name
+            FROM payments p
+            JOIN contracts c ON p.contract_id = c.contract_id
+            JOIN case_requests cr ON c.request_id = cr.request_id
+            JOIN client_profiles cp ON cr.client_id = cp.client_id
+            WHERE cr.lawyer_id = ? AND p.status = 'pending'
+        ");
+        $aq3->execute([$lawyerIdDash]);
+        foreach ($aq3->fetchAll() as $r) $lawyerActionItems[] = $r;
+    } catch (Exception $e) {}
+}
+
+// ==============================
+// ลูกความ: ยอดค้างชำระ
+// ==============================
+$outstandingBalances = [];
+if ($role === 'client' && $clientId) {
+    try {
+        $bq = $pdo->prepare("
+            SELECT c.contract_id, c.fee_amount, c.payment_status,
+                   COALESCE((SELECT SUM(amount) FROM payments WHERE contract_id=c.contract_id AND status='confirmed'),0) AS total_paid,
+                   CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
+                   f.case_number
+            FROM contracts c
+            JOIN case_requests cr ON c.request_id = cr.request_id
+            JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
+            LEFT JOIN filings f ON f.contract_id = c.contract_id
+            WHERE cr.client_id = ?
+              AND c.fee_amount > 0
+              AND c.payment_status != 'paid'
+              AND c.contract_review_status = 'finalized'
+            ORDER BY c.created_at DESC
+        ");
+        $bq->execute([$clientId]);
+        $outstandingBalances = $bq->fetchAll();
+    } catch (Exception $e) {}
+}
+
 function starHtml(float $n, bool $big=false): string {
     $full = (int)round($n);
     $s    = $big ? '1.2rem' : '.9rem';
@@ -515,12 +682,24 @@ include '../includes/header.php';
 .btn-cc{padding:8px 16px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;font-size:.86rem;cursor:pointer;margin-right:6px;}
 </style>
 
-<?php if (isset($_GET['profile_saved'])): ?><div class="toast t-ok">✅ บันทึกโปรไฟล์เรียบร้อยแล้ว</div>
-<?php elseif (isset($_GET['profile_photo_saved'])): ?><div class="toast t-ok">🖼️ อัปเดตรูปโปรไฟล์เรียบร้อยแล้ว</div>
-<?php elseif (isset($_GET['profile_req_sent'])): ?><div class="toast" style="background:#fffbeb;color:#92400e;border:1px solid #fcd34d;">📋 ส่งคำขอแก้ไขข้อมูลแล้ว รอ Admin ยืนยัน</div>
-<?php elseif (isset($_GET['ann_added'])): ?><div class="toast t-ok">✅ เพิ่มประกาศเรียบร้อยแล้ว</div>
-<?php elseif (isset($_GET['reviewed'])): ?><div class="toast t-ok">⭐ บันทึกรีวิวเรียบร้อยแล้ว ขอบคุณ!</div>
-<?php elseif (isset($_GET['req_reviewed'])): ?><div class="toast t-ok">✅ ดำเนินการคำขอเรียบร้อยแล้ว</div>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<?php
+$swalDash = ''; $swalDashIcon = 'success';
+if (isset($_GET['profile_saved']))      { $swalDash = 'บันทึกโปรไฟล์เรียบร้อยแล้ว'; }
+elseif (isset($_GET['profile_photo_saved'])) { $swalDash = 'อัปเดตรูปโปรไฟล์เรียบร้อยแล้ว'; }
+elseif (isset($_GET['profile_req_sent'])){ $swalDash = 'ส่งคำขอแก้ไขข้อมูลแล้ว รอ Admin ยืนยัน'; $swalDashIcon = 'info'; }
+elseif (isset($_GET['ann_added']))      { $swalDash = 'เพิ่มประกาศเรียบร้อยแล้ว'; }
+elseif (isset($_GET['reviewed']))       { $swalDash = 'บันทึกรีวิวเรียบร้อยแล้ว ขอบคุณ!'; }
+elseif (isset($_GET['req_reviewed']))   { $swalDash = 'ดำเนินการคำขอเรียบร้อยแล้ว'; }
+?>
+<?php if ($swalDash): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    Swal.fire({ icon: '<?= $swalDashIcon ?>', title: '<?= $swalDashIcon === 'success' ? 'สำเร็จ!' : 'แจ้งเตือน' ?>',
+        text: '<?= addslashes($swalDash) ?>', confirmButtonColor:'#1a3a5c',
+        timer: 2500, timerProgressBar: true, showConfirmButton: false });
+});
+</script>
 <?php endif; ?>
 
 <?php if ($signDocsBadge > 0): ?>
@@ -610,6 +789,219 @@ include '../includes/header.php';
         <div class="stat-card"><span class="sc-val"><?= $stats['contracts'] ?></span><span class="sc-lbl">สัญญาทั้งหมด</span></div>
       <?php endif; ?>
     </div>
+
+    <!-- Admin: คำขอแก้ไขข้อมูล pending -->
+    <?php if ($role === 'admin' && !empty($pendingProfileReqs)): ?>
+
+    <!-- Admin: คำขอ pending ใกล้หมดอายุ -->
+    <?php if (!empty($expiringRequests)): ?>
+    <div class="box" style="border-color:#fca5a5;">
+      <div class="box-head" style="background:linear-gradient(90deg,#dc2626,#ef4444);">
+        <span>⏰ คำขอใกล้หมดอายุ (3 วัน)</span>
+        <span style="background:#fff;color:#dc2626;border-radius:20px;padding:1px 10px;font-size:.78rem;font-weight:700;"><?= count($expiringRequests) ?></span>
+      </div>
+      <?php foreach ($expiringRequests as $eq): ?>
+      <div style="padding:10px 16px;border-bottom:1px solid #fee2e2;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div>
+          <div style="font-weight:700;color:var(--navy);font-size:.86rem;">
+            👤 <?= htmlspecialchars($eq['client_name']) ?>
+            <span style="font-weight:400;color:var(--muted);"> → 👨‍⚖️ <?= htmlspecialchars($eq['lawyer_name']) ?></span>
+          </div>
+          <div style="font-size:.75rem;margin-top:2px;">
+            <?php if ($eq['days_left'] == 0): ?>
+            <span style="color:#dc2626;font-weight:700;">⚠️ หมดอายุวันนี้!</span>
+            <?php else: ?>
+            <span style="color:#b45309;">หมดอายุใน <strong><?= $eq['days_left'] ?> วัน</strong> (<?= date('d/m/Y', strtotime($eq['expire_date'])) ?>)</span>
+            <?php endif; ?>
+          </div>
+        </div>
+        <a href="/pages/case_requests.php" style="padding:5px 12px;background:#1a3a5c;color:#fff;border-radius:7px;font-size:.78rem;font-weight:700;text-decoration:none;white-space:nowrap;">ดูคำขอ →</a>
+      </div>
+      <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- Admin: นัดขึ้นศาลสัปดาห์นี้ -->
+    <?php if (!empty($upcomingHearingsDash)): ?>
+    <div class="box">
+      <div class="box-head" style="background:linear-gradient(90deg,#0369a1,#0284c7);">
+        <span>🏛️ นัดขึ้นศาล 7 วันข้างหน้า</span>
+        <span style="background:#fff;color:#0369a1;border-radius:20px;padding:1px 10px;font-size:.78rem;font-weight:700;"><?= count($upcomingHearingsDash) ?></span>
+      </div>
+      <?php foreach ($upcomingHearingsDash as $h): ?>
+      <?php $isToday = $h['days_left'] == 0; $isTomorrow = $h['days_left'] == 1; ?>
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div style="flex:1;">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <?php if ($isToday): ?>
+            <span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:10px;">วันนี้!</span>
+            <?php elseif ($isTomorrow): ?>
+            <span style="background:#d97706;color:#fff;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:10px;">พรุ่งนี้</span>
+            <?php else: ?>
+            <span style="background:#e0f2fe;color:#0369a1;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:10px;">อีก <?= $h['days_left'] ?> วัน</span>
+            <?php endif; ?>
+            <span style="font-weight:700;font-size:.86rem;color:var(--navy);"><?= htmlspecialchars($h['case_number'] ?? '#'.$h['hearing_id']) ?></span>
+            <span style="font-size:.78rem;color:var(--muted);">ครั้งที่ <?= $h['hearing_round'] ?></span>
+          </div>
+          <div style="font-size:.78rem;color:#475569;margin-top:2px;">
+            👤 <?= htmlspecialchars($h['client_name']) ?> · 👨‍⚖️ <?= htmlspecialchars($h['lawyer_name']) ?><br>
+            🏛️ <?= htmlspecialchars($h['court_name']) ?> · 📅 <?= date('d/m/Y', strtotime($h['hearing_date'])) ?><?= $h['hearing_time'] ? ' '.substr($h['hearing_time'],0,5) : '' ?>
+          </div>
+        </div>
+      </div>
+      <?php endforeach; ?>
+      <div style="padding:8px 16px;text-align:right;">
+        <a href="/pages/hearings.php" style="font-size:.8rem;color:var(--navy);font-weight:700;text-decoration:none;">ดูตารางนัดทั้งหมด →</a>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <?php elseif ($role === 'lawyer'): ?>
+
+    <!-- ทนาย: Action items -->
+    <?php if (!empty($lawyerActionItems)): ?>
+    <div class="box" style="border-color:#fcd34d;">
+      <div class="box-head" style="background:linear-gradient(90deg,#d97706,#f59e0b);">
+        <span>⚡ รอดำเนินการ</span>
+        <span style="background:#fff;color:#d97706;border-radius:20px;padding:1px 10px;font-size:.78rem;font-weight:700;"><?= count($lawyerActionItems) ?></span>
+      </div>
+      <?php foreach ($lawyerActionItems as $ai): ?>
+      <div style="padding:10px 16px;border-bottom:1px solid #fef3c7;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div>
+          <?php if ($ai['type'] === 'review_contract'): ?>
+          <div style="font-size:.83rem;font-weight:700;color:var(--navy);">📄 รอพิจารณาสัญญา</div>
+          <div style="font-size:.76rem;color:var(--muted);">👤 <?= htmlspecialchars($ai['client_name']) ?></div>
+          <?php elseif ($ai['type'] === 'finalize'): ?>
+          <div style="font-size:.83rem;font-weight:700;color:var(--navy);">🔒 รอยืนยันสัญญาสุดท้าย</div>
+          <div style="font-size:.76rem;color:var(--muted);">👤 <?= htmlspecialchars($ai['client_name']) ?> · ลูกความยอมรับแล้ว</div>
+          <?php elseif ($ai['type'] === 'payment'): ?>
+          <div style="font-size:.83rem;font-weight:700;color:var(--navy);">💰 รอยืนยันการชำระเงิน</div>
+          <div style="font-size:.76rem;color:var(--muted);">👤 <?= htmlspecialchars($ai['client_name']) ?> · <?= number_format((float)$ai['amount'],2) ?> บาท</div>
+          <?php endif; ?>
+        </div>
+        <a href="<?= $ai['type']==='payment' ? '/pages/payments.php?contract_id='.$ai['contract_id'] : '/pages/contracts.php' ?>"
+           style="padding:5px 12px;background:#1a3a5c;color:#fff;border-radius:7px;font-size:.78rem;font-weight:700;text-decoration:none;white-space:nowrap;">
+          ดำเนินการ →
+        </a>
+      </div>
+      <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- ทนาย: นัดขึ้นศาล 7 วัน -->
+    <?php if (!empty($upcomingHearingsDash)): ?>
+    <div class="box">
+      <div class="box-head" style="background:linear-gradient(90deg,#0369a1,#0284c7);">
+        <span>🏛️ นัดขึ้นศาล 7 วันข้างหน้า</span>
+        <span style="background:#fff;color:#0369a1;border-radius:20px;padding:1px 10px;font-size:.78rem;font-weight:700;"><?= count($upcomingHearingsDash) ?></span>
+      </div>
+      <?php foreach ($upcomingHearingsDash as $h): ?>
+      <?php $isToday = $h['days_left'] == 0; $isTomorrow = $h['days_left'] == 1; ?>
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;">
+          <?php if ($isToday): ?>
+          <span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:10px;">วันนี้!</span>
+          <?php elseif ($isTomorrow): ?>
+          <span style="background:#d97706;color:#fff;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:10px;">พรุ่งนี้</span>
+          <?php else: ?>
+          <span style="background:#e0f2fe;color:#0369a1;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:10px;">อีก <?= $h['days_left'] ?> วัน</span>
+          <?php endif; ?>
+          <span style="font-weight:700;font-size:.86rem;color:var(--navy);"><?= htmlspecialchars($h['case_number'] ?? '—') ?></span>
+          <span style="font-size:.78rem;color:var(--muted);">ครั้งที่ <?= $h['hearing_round'] ?></span>
+        </div>
+        <div style="font-size:.78rem;color:#475569;">
+          👤 <?= htmlspecialchars($h['client_name']) ?> ·
+          🏛️ <?= htmlspecialchars($h['court_name']) ?> ·
+          📅 <?= date('d/m/Y', strtotime($h['hearing_date'])) ?><?= $h['hearing_time'] ? ' '.substr($h['hearing_time'],0,5) : '' ?>
+        </div>
+      </div>
+      <?php endforeach; ?>
+      <div style="padding:8px 16px;text-align:right;">
+        <a href="/pages/hearings.php" style="font-size:.8rem;color:var(--navy);font-weight:700;text-decoration:none;">ดูตารางนัดทั้งหมด →</a>
+      </div>
+    </div>
+    <?php endif; ?>
+
+    <?php elseif ($role === 'client'): ?>
+
+    <!-- ลูกความ: นัดขึ้นศาล -->
+    <?php if (!empty($upcomingHearingsDash)): ?>
+    <div class="box">
+      <div class="box-head" style="background:linear-gradient(90deg,#0369a1,#0284c7);">
+        <span>🏛️ นัดขึ้นศาลที่กำลังจะมา</span>
+        <span style="background:#fff;color:#0369a1;border-radius:20px;padding:1px 10px;font-size:.78rem;font-weight:700;"><?= count($upcomingHearingsDash) ?></span>
+      </div>
+      <?php foreach ($upcomingHearingsDash as $h): ?>
+      <?php $isToday = $h['days_left'] == 0; $isTomorrow = $h['days_left'] == 1; ?>
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+          <?php if ($isToday): ?>
+          <span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:10px;">🔴 วันนี้!</span>
+          <?php elseif ($isTomorrow): ?>
+          <span style="background:#d97706;color:#fff;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:10px;">🟡 พรุ่งนี้</span>
+          <?php elseif ($h['days_left'] <= 7): ?>
+          <span style="background:#0369a1;color:#fff;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:10px;">🔵 อีก <?= $h['days_left'] ?> วัน</span>
+          <?php else: ?>
+          <span style="background:#e2e8f0;color:#475569;font-size:.7rem;font-weight:700;padding:2px 10px;border-radius:10px;">อีก <?= $h['days_left'] ?> วัน</span>
+          <?php endif; ?>
+          <span style="font-weight:700;font-size:.88rem;color:var(--navy);">📁 <?= htmlspecialchars($h['case_number'] ?? '—') ?></span>
+          <span style="font-size:.78rem;color:var(--muted);">ครั้งที่ <?= $h['hearing_round'] ?></span>
+        </div>
+        <div style="font-size:.8rem;color:#475569;margin-left:2px;">
+          👨‍⚖️ <?= htmlspecialchars($h['lawyer_name']) ?> ·
+          🏛️ <?= htmlspecialchars($h['court_name']) ?>
+        </div>
+        <div style="font-size:.8rem;color:#475569;margin-left:2px;margin-top:2px;">
+          📅 <?= date('d/m/Y', strtotime($h['hearing_date'])) ?>
+          <?php if ($h['hearing_time']): ?> เวลา <?= substr($h['hearing_time'],0,5) ?> น.<?php endif; ?>
+        </div>
+      </div>
+      <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- ลูกความ: ยอดค้างชำระ -->
+    <?php if (!empty($outstandingBalances)): ?>
+    <div class="box" style="border-color:#fca5a5;">
+      <div class="box-head" style="background:linear-gradient(90deg,#be123c,#e11d48);">
+        <span>💳 ยอดค้างชำระ</span>
+        <span style="background:#fff;color:#be123c;border-radius:20px;padding:1px 10px;font-size:.78rem;font-weight:700;"><?= count($outstandingBalances) ?> คดี</span>
+      </div>
+      <?php foreach ($outstandingBalances as $ob):
+        $fee       = (float)$ob['fee_amount'];
+        $paid      = (float)$ob['total_paid'];
+        $remaining = $fee - $paid;
+        $pct       = $fee > 0 ? min(100, round($paid/$fee*100)) : 0;
+      ?>
+      <div style="padding:12px 16px;border-bottom:1px solid #fee2e2;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <div>
+            <div style="font-weight:700;font-size:.86rem;color:var(--navy);">
+              👨‍⚖️ <?= htmlspecialchars($ob['lawyer_name']) ?>
+              <?php if ($ob['case_number']): ?>
+              <span style="font-weight:400;color:var(--muted);font-size:.78rem;"> · <?= htmlspecialchars($ob['case_number']) ?></span>
+              <?php endif; ?>
+            </div>
+          </div>
+          <a href="/pages/payments.php?contract_id=<?= $ob['contract_id'] ?>"
+             style="padding:5px 12px;background:#be123c;color:#fff;border-radius:7px;font-size:.78rem;font-weight:700;text-decoration:none;white-space:nowrap;">
+            💳 ชำระ →
+          </a>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:.78rem;color:#475569;margin-bottom:5px;">
+          <span>จ่ายแล้ว <?= number_format($paid,2) ?> บาท</span>
+          <span style="color:#be123c;font-weight:700;">ค้าง <?= number_format($remaining,2) ?> บาท</span>
+        </div>
+        <div style="background:#e2e8f0;border-radius:4px;height:6px;overflow:hidden;">
+          <div style="width:<?= $pct ?>%;background:<?= $pct>=100?'#059669':'#e11d48' ?>;height:100%;border-radius:4px;transition:width .3s;"></div>
+        </div>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:3px;text-align:right;"><?= $pct ?>% ชำระแล้ว</div>
+      </div>
+      <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <?php endif; ?>
 
     <!-- Admin: คำขอแก้ไขข้อมูล pending -->
     <?php if ($role === 'admin' && !empty($pendingProfileReqs)): ?>
@@ -712,6 +1104,7 @@ include '../includes/header.php';
           <?= csrf_field() ?>
           <input type="hidden" name="action"    value="review">
           <input type="hidden" name="lawyer_id" value="<?= $lw['lawyer_id'] ?>">
+          <?php if ($lw['has_completed']): ?>
           <div style="margin-bottom:8px;">
             <div style="font-size:.76rem;color:#64748b;font-weight:600;margin-bottom:4px;">ให้คะแนน</div>
             <div class="star-picker">
@@ -731,6 +1124,11 @@ include '../includes/header.php';
             <span style="font-size:.75rem;color:var(--green);">✅ รีวิวแล้ว <?= $lw['my_rating'] ?> ดาว</span>
             <?php endif; ?>
           </div>
+          <?php else: ?>
+          <div style="font-size:.82rem;color:var(--muted);background:var(--bg2);border-radius:8px;padding:10px 14px;margin-top:6px;">
+            🔒 รีวิวได้หลังคดีปิดแล้วเท่านั้น
+          </div>
+          <?php endif; ?>
         </form>
       </div>
       <?php endforeach; ?>

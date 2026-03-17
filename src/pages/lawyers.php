@@ -28,6 +28,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'กรุณากรอกข้อมูลที่จำเป็นให้ครบ (ชื่อ, นามสกุล, Username, อีเมล, รหัสผ่าน)';
     } elseif (!preg_match('/^[a-zA-Z0-9_]{3,30}$/', $username)) {
         $error = 'Username ต้องเป็นตัวอักษร a-z, 0-9 หรือ _ ความยาว 3-30 ตัว';
+    } elseif (strlen($password) < 8) {
+        $error = 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
+    } elseif (!preg_match('/[A-Z]/', $password)) {
+        $error = 'รหัสผ่านต้องมีตัวอักษรพิมพ์ใหญ่อย่างน้อย 1 ตัว';
+    } elseif (!preg_match('/[a-z]/', $password)) {
+        $error = 'รหัสผ่านต้องมีตัวอักษรพิมพ์เล็กอย่างน้อย 1 ตัว';
+    } elseif (!preg_match('/[0-9]/', $password)) {
+        $error = 'รหัสผ่านต้องมีตัวเลขอย่างน้อย 1 ตัว';
     } else {
         $chk = $pdo->prepare("SELECT user_id FROM users WHERE email = ? OR username = ?");
         $chk->execute([$email, $username]);
@@ -89,7 +97,7 @@ document.addEventListener('DOMContentLoaded', function() {
     Swal.fire({
         icon: '<?= $result['ok'] ? 'success' : 'error' ?>',
         title: '<?= $result['ok'] ? 'สำเร็จ!' : 'เกิดข้อผิดพลาด' ?>',
-        text: '<?= addslashes($result['msg']) ?>',
+        text: <?= json_encode($result['msg']) ?>,
         confirmButtonColor: '#1a3a5c',
         <?php if ($result['ok']): ?>timer: 2000, timerProgressBar: true,<?php endif; ?>
     });
@@ -153,8 +161,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 <div class="form-group">
                     <label>Username <span style="color:red">*</span></label>
-                    <input type="text" name="username" placeholder="เช่น lawyer_sam" required>
-                    <small style="color:#94a3b8;font-size:.75rem;">a-z, 0-9, _ ความยาว 3-30 ตัว</small>
+                    <input type="text" name="username" placeholder="เช่น lawyer_sam" maxlength="30" required>
+                    <small style="color:#94a3b8;font-size:.75rem;">ตัวอักษรภาษาอังกฤษ, ตัวเลข, _ ความยาว 3-30 ตัว (สูงสุด 30 ตัว)</small>
                 </div>
                 <div class="form-group">
                     <label>อีเมล <span style="color:red">*</span></label>
@@ -162,7 +170,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
                 <div class="form-group">
                     <label>รหัสผ่าน <span style="color:red">*</span></label>
-                    <input type="password" name="password" required>
+                    <input type="password" name="password" placeholder="อย่างน้อย 8 ตัว" required>
+                    <small style="color:#94a3b8;font-size:.75rem;">ต้องมีตัวพิมพ์ใหญ่ (A-Z), ตัวพิมพ์เล็ก (a-z) และตัวเลข (0-9)</small>
                 </div>
                 <div class="form-group">
                     <label>เบอร์โทร</label>

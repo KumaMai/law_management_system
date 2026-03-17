@@ -17,6 +17,7 @@ $success  = '';
 // Handle POST — บันทึก/แก้ไขคำพิพากษา (lawyer/admin เท่านั้น)
 // ==============================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])) {
+    $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
     csrf_verify();
     $action    = $_POST['action'] ?? '';
     $filingId  = (int)($_POST['filing_id'] ?? 0);
@@ -63,13 +64,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
             ")->execute([$filingId, $fullResult, $verdictDate]);
         }
 
-        // อัปเดต contract status → completed
+        // อัปเดต contract status → completed เมื่อมีคำพิพากษา (ไม่ขึ้นกับการจ่ายเงิน)
         $pdo->prepare("
             UPDATE contracts SET status = 'completed'
             WHERE contract_id = (SELECT contract_id FROM filings WHERE filing_id = ?)
+              AND status NOT IN ('completed','terminated')
         ")->execute([$filingId]);
 
-        $success = '⚖️ บันทึกคำพิพากษาแล้ว — ' . ($winner === 'plaintiff' ? '✅ โจทก์ชนะ' : '✅ จำเลยชนะ');
+        $success = '⚖️ บันทึกคำพิพากษาแล้ว — '
+            . ($winner === 'plaintiff' ? '✅ โจทก์ชนะ' : '✅ จำเลยชนะ')
+            . ' — คดีปิดแล้ว';
+    }
+    if ($isAjax) {
+        header('Content-Type: application/json');
+        echo json_encode(['ok' => empty($error), 'msg' => $error ?: $success]);
+        exit;
     }
 }
 
@@ -141,6 +150,7 @@ $pageTitle = 'คำพิพากษา';
 include '../includes/header.php';
 ?>
 
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
 .verdict-card { border:1px solid #e2e8f0; border-radius:10px; margin-bottom:20px; overflow:hidden; }
 .verdict-header { background:#1a3a5c; color:#fff; padding:12px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; }
@@ -158,13 +168,6 @@ include '../includes/header.php';
 .winner-btn.selected-plaintiff { border-color:#198754; background:#d1e7dd; }
 .winner-btn.selected-defendant { border-color:#dc3545; background:#f8d7da; }
 </style>
-
-<?php if ($error): ?>
-<div class="alert alert-error"><?= htmlspecialchars($error) ?></div>
-<?php endif; ?>
-<?php if ($success): ?>
-<div class="alert alert-success"><?= htmlspecialchars($success) ?></div>
-<?php endif; ?>
 
 <!-- ===== สรุปสถิติ ===== -->
 <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:24px;">
@@ -232,10 +235,10 @@ include '../includes/header.php';
             <button class="btn btn-primary btn-sm"
                     onclick="openVerdictModal(
                         <?= $f['filing_id'] ?>,
-                        '<?= addslashes($f['case_number'] ?? '') ?>',
-                        '<?= addslashes($f['client_name']) ?>',
-                        '<?= addslashes($f['lawyer_name']) ?>',
-                        '<?= addslashes($f['court_name']) ?>'
+                        <?= htmlspecialchars(json_encode($f['case_number'] ?? ''), ENT_QUOTES) ?>,
+                        <?= htmlspecialchars(json_encode($f['client_name']), ENT_QUOTES) ?>,
+                        <?= htmlspecialchars(json_encode($f['lawyer_name']), ENT_QUOTES) ?>,
+                        <?= htmlspecialchars(json_encode($f['court_name']), ENT_QUOTES) ?>
                     )">
                 ⚖️ บันทึกคำพิพากษา
             </button>
@@ -290,10 +293,10 @@ include '../includes/header.php';
                 <button class="btn btn-sm" style="background:#e67e22; color:#fff;"
                         onclick="openVerdictModal(
                             <?= $f['filing_id'] ?>,
-                            '<?= addslashes($f['case_number'] ?? '') ?>',
-                            '<?= addslashes($f['client_name']) ?>',
-                            '<?= addslashes($f['lawyer_name']) ?>',
-                            '<?= addslashes($f['court_name']) ?>',
+                            <?= htmlspecialchars(json_encode($f['case_number'] ?? ''), ENT_QUOTES) ?>,
+                            <?= htmlspecialchars(json_encode($f['client_name']), ENT_QUOTES) ?>,
+                            <?= htmlspecialchars(json_encode($f['lawyer_name']), ENT_QUOTES) ?>,
+                            <?= htmlspecialchars(json_encode($f['court_name']), ENT_QUOTES) ?>,
                             '<?= $isPlaintiffWin ? 'plaintiff' : 'defendant' ?>',
                             <?= $f['verdict_id'] ?>
                         )">
@@ -422,6 +425,33 @@ function closeVerdictModal() {
 
 document.getElementById('modal-verdict').addEventListener('click', function(e) {
     if (e.target === this) closeVerdictModal();
+});
+
+document.querySelector('#modal-verdict form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('v-submit');
+    const origText = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳ กำลังบันทึก...';
+    try {
+        const res  = await fetch(location.pathname, {
+            method: 'POST',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            body: new FormData(this)
+        });
+        const data = await res.json();
+        closeVerdictModal();
+        if (data.ok) {
+            await Swal.fire({ icon:'success', title:'สำเร็จ!', text: data.msg,
+                confirmButtonColor:'#1a3a5c', timer:2000, timerProgressBar:true, showConfirmButton:false });
+            location.reload();
+        } else {
+            Swal.fire({ icon:'error', title:'เกิดข้อผิดพลาด', text: data.msg, confirmButtonColor:'#1a3a5c' });
+        }
+    } catch {
+        Swal.fire({ icon:'error', title:'ผิดพลาด', text:'ไม่สามารถเชื่อมต่อได้', confirmButtonColor:'#1a3a5c' });
+    } finally {
+        btn.disabled = false; btn.textContent = origText;
+    }
 });
 </script>
 

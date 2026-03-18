@@ -37,11 +37,13 @@ function validateUpload(array $file, array $allowedMimes, int $maxBytes): array 
 
     // หา extension จาก MIME type (ปลอดภัยกว่าใช้ชื่อไฟล์)
     $mimeToExt = [
-        'application/pdf' => 'pdf',
-        'image/jpeg'      => 'jpg',
-        'image/png'       => 'png',
-        'application/msword' => 'doc',
+        'application/pdf'      => 'pdf',
+        'image/jpeg'           => 'jpg',
+        'image/png'            => 'png',
+        'application/msword'   => 'doc',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+        'application/vnd.ms-excel'                                                => 'xls',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'       => 'xlsx',
     ];
     $ext = $mimeToExt[$mimeType] ?? 'bin';
 
@@ -58,4 +60,18 @@ const MIME_DOCS      = [
     'image/png',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
+const MIME_EXCEL     = [
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+];
+// MIME_DOCS_FULL: เหมือน MIME_DOCS แต่รวม Excel ด้วย (ใช้กับเอกสารคดีที่อาจมีไฟล์ตาราง)
+const MIME_DOCS_FULL = [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ];

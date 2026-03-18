@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/file_upload_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -33,13 +34,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
     $lid = $lpRow->fetchColumn();
 
     $photoName = null;
-    if (!empty($_FILES['profile_photo']['tmp_name']) && $_FILES['profile_photo']['error'] === 0) {
-        $ext = strtolower(pathinfo($_FILES['profile_photo']['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['jpg','jpeg','png']) && $_FILES['profile_photo']['size'] <= 5*1024*1024) {
+    if (!empty($_FILES['profile_photo']['tmp_name']) && $_FILES['profile_photo']['error'] !== UPLOAD_ERR_NO_FILE) {
+        $up = validateUpload($_FILES['profile_photo'], MIME_IMAGES, 5 * 1024 * 1024);
+        if ($up['ok']) {
             $dir = '/var/www/html/uploads/lawyer_photos/';
             if (!is_dir($dir)) mkdir($dir, 0755, true);
-            $photoName = 'lawyer_'.$lid.'_'.time().'.'.$ext;
-            move_uploaded_file($_FILES['profile_photo']['tmp_name'], $dir.$photoName);
+            $photoName = 'lawyer_' . $lid . '_' . time() . '.' . $up['ext'];
+            move_uploaded_file($_FILES['profile_photo']['tmp_name'], $dir . $photoName);
         }
     }
 
@@ -67,13 +68,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
 
     // ===== รูปโปรไฟล์: อัปเดตทันที ไม่ต้องรอ admin =====
     $photoName = null;
-    if (!empty($_FILES['client_photo']['tmp_name']) && $_FILES['client_photo']['error'] === 0) {
-        $ext = strtolower(pathinfo($_FILES['client_photo']['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['jpg','jpeg','png']) && $_FILES['client_photo']['size'] <= 5*1024*1024) {
+    if (!empty($_FILES['client_photo']['tmp_name']) && $_FILES['client_photo']['error'] !== UPLOAD_ERR_NO_FILE) {
+        $up = validateUpload($_FILES['client_photo'], MIME_IMAGES, 5 * 1024 * 1024);
+        if ($up['ok']) {
             $dir = '/var/www/html/uploads/client_photos/';
             if (!is_dir($dir)) mkdir($dir, 0755, true);
-            $photoName = 'client_'.$cid.'_'.time().'.'.$ext;
-            move_uploaded_file($_FILES['client_photo']['tmp_name'], $dir.$photoName);
+            $photoName = 'client_' . $cid . '_' . time() . '.' . $up['ext'];
+            move_uploaded_file($_FILES['client_photo']['tmp_name'], $dir . $photoName);
             try { $pdo->prepare("UPDATE client_profiles SET profile_photo=? WHERE client_id=?")->execute([$photoName, $cid]); } catch(Exception $e){}
         }
     }

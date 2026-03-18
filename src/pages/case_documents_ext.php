@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/file_upload_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -29,25 +30,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
         exit;
     }
 
-    if (!empty($_FILES['doc_file']['tmp_name']) && $_FILES['doc_file']['error'] === 0) {
+    if (!empty($_FILES['doc_file']['tmp_name']) && $_FILES['doc_file']['error'] !== UPLOAD_ERR_NO_FILE) {
         $origName = basename($_FILES['doc_file']['name']);
-        $ext      = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
-        $allowed  = ['pdf','jpg','jpeg','png','doc','docx','xls','xlsx'];
         $maxSize  = 30 * 1024 * 1024; // 30MB
 
-        if (!in_array($ext, $allowed)) {
-            header('Location: /pages/case_documents_ext.php?request_id='.$requestId.'&error=type');
-            exit;
-        }
-        if ($_FILES['doc_file']['size'] > $maxSize) {
-            header('Location: /pages/case_documents_ext.php?request_id='.$requestId.'&error=size');
+        // ── ตรวจ MIME type จริง + ขนาดไฟล์ ──
+        $up = validateUpload($_FILES['doc_file'], MIME_DOCS_FULL, $maxSize);
+        if (!$up['ok']) {
+            header('Location: /pages/case_documents_ext.php?request_id=' . $requestId . '&error=' . ($up['error'] === 'ประเภทไฟล์ไม่รองรับ' ? 'type' : 'size'));
             exit;
         }
 
         $saveDir = '/var/www/html/uploads/case_docs/';
         if (!is_dir($saveDir)) mkdir($saveDir, 0755, true);
 
-        $newName  = 'extdoc_' . $requestId . '_' . time() . '_' . uniqid() . '.' . $ext;
+        $newName  = 'extdoc_' . $requestId . '_' . time() . '_' . uniqid() . '.' . $up['ext'];
         move_uploaded_file($_FILES['doc_file']['tmp_name'], $saveDir . $newName);
 
         $pdo->prepare("

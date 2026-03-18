@@ -50,30 +50,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
         if (!$chk->fetch()) { header('Location: /pages/client_sign_docs.php?err=noauth'); exit; }
     }
 
-    // Debug: แสดง error code จริง
+    // ── ตรวจ MIME type จริง (PDF เท่านั้น) ──
     if (!isset($_FILES['pdf_file']) || $_FILES['pdf_file']['error'] === UPLOAD_ERR_NO_FILE) {
         header('Location: /pages/client_sign_docs.php?err=nofile'); exit;
     }
     if ($_FILES['pdf_file']['error'] !== UPLOAD_ERR_OK) {
-        $errCode = $_FILES['pdf_file']['error'];
-        header('Location: /pages/client_sign_docs.php?err=upload&code='.$errCode); exit;
-    }
-    if (empty($_FILES['pdf_file']['tmp_name'])) {
-        header('Location: /pages/client_sign_docs.php?err=nofile'); exit;
+        header('Location: /pages/client_sign_docs.php?err=upload&code=' . $_FILES['pdf_file']['error']); exit;
     }
 
-    $ext = strtolower(pathinfo($_FILES['pdf_file']['name'], PATHINFO_EXTENSION));
-    if ($ext !== 'pdf') {
-        header('Location: /pages/client_sign_docs.php?err=notpdf'); exit;
-    }
-    if ($_FILES['pdf_file']['size'] > 20*1024*1024) {
-        header('Location: /pages/client_sign_docs.php?err=toobig'); exit;
+    $up = validateUpload($_FILES['pdf_file'], MIME_PDF, 20 * 1024 * 1024);
+    if (!$up['ok']) {
+        $errParam = str_contains($up['error'], 'ประเภท') ? 'notpdf' : 'toobig';
+        header('Location: /pages/client_sign_docs.php?err=' . $errParam); exit;
     }
 
     $dir = '/var/www/html/uploads/sign_docs/';
     if (!is_dir($dir)) mkdir($dir, 0755, true);
-    $filename = 'signdoc_'.$requestId.'_'.time().'.'.$ext;
-    move_uploaded_file($_FILES['pdf_file']['tmp_name'], $dir.$filename);
+    $filename = 'signdoc_' . $requestId . '_' . time() . '.' . $up['ext'];
+    move_uploaded_file($_FILES['pdf_file']['tmp_name'], $dir . $filename);
 
     $pdo->prepare("
         INSERT INTO client_sign_docs (request_id, office_id, uploaded_by, doc_type, doc_title, description, file_path, due_date)
@@ -152,14 +146,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
     if (empty($_FILES['signed_pdf']['tmp_name']) || $_FILES['signed_pdf']['error'] !== UPLOAD_ERR_OK) {
         header('Location: /pages/client_sign_docs.php?err=nofile'); exit;
     }
-    $ext = strtolower(pathinfo($_FILES['signed_pdf']['name'], PATHINFO_EXTENSION));
-    if ($ext !== 'pdf') { header('Location: /pages/client_sign_docs.php?err=notpdf'); exit; }
-    if ($_FILES['signed_pdf']['size'] > 20*1024*1024) { header('Location: /pages/client_sign_docs.php?err=toobig'); exit; }
+
+    // ── ตรวจ MIME type จริง (PDF เท่านั้น) ──
+    $up = validateUpload($_FILES['signed_pdf'], MIME_PDF, 20 * 1024 * 1024);
+    if (!$up['ok']) {
+        $errParam = str_contains($up['error'], 'ประเภท') ? 'notpdf' : 'toobig';
+        header('Location: /pages/client_sign_docs.php?err=' . $errParam); exit;
+    }
 
     $dir = '/var/www/html/uploads/sign_docs/signed/';
     if (!is_dir($dir)) mkdir($dir, 0755, true);
-    $filename = 'signed_'.$docId.'_'.time().'.pdf';
-    move_uploaded_file($_FILES['signed_pdf']['tmp_name'], $dir.$filename);
+    $filename = 'signed_' . $docId . '_' . time() . '.' . $up['ext'];
+    move_uploaded_file($_FILES['signed_pdf']['tmp_name'], $dir . $filename);
 
     $note = trim($_POST['client_note'] ?? '');
     try {

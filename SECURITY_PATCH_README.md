@@ -1,140 +1,97 @@
-# Security Patch — วิธีนำไปใช้
+# Security & Patch Status — v4.0
 
-## ไฟล์ที่ได้รับ และต้องเอาไปวางที่ไหน
+เอกสารนี้บันทึกสถานะปัจจุบันของการแก้ไขด้านความปลอดภัยและ patch ทั้งหมด
+**ทุก patch ได้ถูก apply เข้าโค้ดแล้ว** ไม่ต้องทำอะไรเพิ่มสำหรับ setup ใหม่
 
-| ไฟล์ที่ได้ | นำไปวางที่ | หมายเหตุ |
+---
+
+## ✅ Patch ที่ apply แล้ว
+
+### 🔴 Critical
+
+| ปัญหา | วิธีแก้ | ไฟล์ |
 |---|---|---|
-| `csrf_helper.php` | `src/config/csrf_helper.php` | ไฟล์ใหม่ — สร้างขึ้นมาใหม่ |
-| `file_upload_helper.php` | `src/config/file_upload_helper.php` | ไฟล์ใหม่ — สร้างขึ้นมาใหม่ |
-| `login.php` | `src/pages/login.php` | **แทนที่ทั้งไฟล์** |
-| `logout.php` | `src/pages/logout.php` | **แทนที่ทั้งไฟล์** |
-| `case_requests.php` | `src/pages/case_requests.php` | **แทนที่ทั้งไฟล์** |
-| `payments_handlers.php` | อ่านวิธีด้านล่าง | แทนที่เฉพาะ handlers |
-| `hearings_patch.php` | อ่านวิธีด้านล่าง | แทนที่เฉพาะส่วน |
-| `client_sign_docs_patch.php` | อ่านวิธีด้านล่าง | แทนที่เฉพาะส่วน |
-| `nginx_security_headers.conf` | `docker/nginx/default.conf` | **แทนที่ทั้งไฟล์** |
+| **Session Fixation** — session ID เดิมไม่เปลี่ยนหลัง login | `session_regenerate_id(true)` หลัง login สำเร็จ | `login.php` |
+| **Missing Authorization** — ทนายอนุมัติคดีของทนายคนอื่นได้ | ตรวจ `lawyer_id` + `office_id` ใน query ทุก action | `case_requests.php` |
+| **IDOR ใน payments** — ยืนยันชำระเงินของ contract คนอื่นได้ | JOIN verify `payment_id → contract_id → office_id` | `payments.php` |
+
+### 🟠 High
+
+| ปัญหา | วิธีแก้ | ไฟล์ |
+|---|---|---|
+| **Race Condition ใน payments** — confirm พร้อมกันหลายครั้ง | `BEGIN TRANSACTION` + `SELECT ... FOR UPDATE` | `payments.php` |
+| **File Upload — ตรวจแค่ extension** (8 จุด) | ใช้ `validateUpload()` ตรวจ MIME type จาก `finfo_file()` | ดูตาราง Upload ด้านล่าง |
+
+### 🟡 Medium
+
+| ปัญหา | วิธีแก้ | ไฟล์ |
+|---|---|---|
+| **CSRF** — ทุก POST form | `csrf_helper.php`: `csrf_field()` + `csrf_verify()` | ทุกไฟล์ |
+| **Rate Limiting** — login brute force | 10 ครั้ง/15 นาที ด้วย session counter | `login.php` |
+| **XSS** — output ข้อมูล user | `htmlspecialchars()` ทุกจุด + `json_encode()` ใน JS | ทุกไฟล์ |
+| **Password Complexity** | ≥8 ตัว + uppercase + lowercase + digit | `register.php`, `lawyers.php`, `clients.php` |
+| **citizen_id แสดงเต็ม** | mask display: `193•••••••61` | `clients.php` |
+
+### 🟢 Low
+
+| ปัญหา | วิธีแก้ | ไฟล์ |
+|---|---|---|
+| **Logout ไม่ลบ Session** | `session_destroy()` + unset cookie | `logout.php` |
+| **Missing Security Headers** | X-Frame-Options, X-Content-Type-Options ฯลฯ | `nginx/default.conf` |
+| **PHP execute ใน uploads** | `location ~* ^/uploads/.*\.php$ { deny all; }` | `nginx/default.conf` |
+| **Missing Foreign Keys** | FK ครบทุกตาราง (รวมใน init.sql แล้ว) | `init.sql` |
 
 ---
 
-## ขั้นตอนการแก้ไขทีละไฟล์
+## 📁 File Upload Validation — จุดที่ครอบคลุม
 
-### ขั้นที่ 1 — วางไฟล์ config ใหม่ (ทำก่อน)
-```
-src/config/csrf_helper.php        ← วางไฟล์ csrf_helper.php ที่ได้รับ
-src/config/file_upload_helper.php ← วางไฟล์ file_upload_helper.php ที่ได้รับ
-```
+ทุกจุดใช้ `validateUpload()` จาก `src/config/file_upload_helper.php`
+ซึ่งตรวจ MIME type จากเนื้อหาไฟล์จริง (`finfo_file`) ไม่ใช่จากนามสกุล
 
-### ขั้นที่ 2 — แทนที่ login.php และ logout.php
-แทนที่ทั้งไฟล์ได้เลย ไม่มีอะไรต้องปรับเพิ่ม
+| ไฟล์ | input name | MIME Constant | ขนาดสูงสุด |
+|---|---|---|---|
+| `dashboard.php` | `profile_photo` (ทนาย) | `MIME_IMAGES` | 5 MB |
+| `dashboard.php` | `client_photo` (ลูกความ) | `MIME_IMAGES` | 5 MB |
+| `payments.php` | `qr_file` | `MIME_IMAGES` | 5 MB |
+| `payments.php` | `slip_file` | `MIME_PDF_IMGS` | 10 MB |
+| `contract_documents.php` | `document` | `MIME_DOCS` | 10 MB |
+| `case_documents_ext.php` | `doc_file` | `MIME_DOCS_FULL` | 30 MB |
+| `client_sign_docs.php` | `pdf_file` | `MIME_PDF` | 20 MB |
+| `client_sign_docs.php` | `signed_pdf` | `MIME_PDF` | 20 MB |
+| `Case_summary.php` | `extra_pdfs[]` (multiple) | `MIME_PDF` | 50 MB/file |
 
-### ขั้นที่ 3 — แทนที่ case_requests.php
-แทนที่ทั้งไฟล์ได้เลย
+---
 
-### ขั้นที่ 4 — แก้ payments.php
-เปิด `src/pages/payments.php` แล้ว:
+## 🗄️ Database — init.sql (v4.0)
 
-1. เพิ่มบรรทัดนี้ต้นไฟล์ (หลัง require_once อื่นๆ):
-```php
-require_once '../config/csrf_helper.php';
-require_once '../config/file_upload_helper.php';
-```
+`docker/mysql/init.sql` รวม migration ทั้งหมดไว้แล้ว:
 
-2. **แทนที่** POST handlers ทั้งหมด (ตั้งแต่ `// Handle: ทนายอัปโหลด QR Code`
-   จนถึง `// Handle: ทนายบันทึกรับเงินสดเอง`) ด้วยโค้ดจากไฟล์ `payments_handlers.php`
+| Migration เดิม | สิ่งที่เพิ่ม | สถานะ |
+|---|---|---|
+| `Migrate username.sql` | `users.username` | ✅ รวมแล้ว |
+| `Migrate_payments.sql` | ตาราง `payments`, `lawyer_profiles.qr_code_file` | ✅ รวมแล้ว |
+| `migrate_contract_review.sql` | `contracts.contract_review_status` + negotiation columns | ✅ รวมแล้ว |
+| `migrate_dashboard.sql.sql` | ตาราง `announcements`, `lawyer_reviews` + profile columns | ✅ รวมแล้ว |
+| `migrate_hearing_absent.sql` | `court_hearings.updated_at` | ✅ รวมแล้ว |
+| `Migrate add missing fk.sql` | Foreign Keys ทุกตาราง | ✅ รวมแล้ว |
 
-3. ส่วน fetch + HTML ด้านล่างเหมือนเดิม **แต่ต้องเพิ่ม** `<?= csrf_field() ?>`
-   ในทุก `<form method="POST">` (หาด้วย Ctrl+F แล้วเพิ่มทีละตัว)
+migration files เดิมย้ายไปเก็บที่ `docker/mysql/migrations/` (ใช้อ้างอิงเท่านั้น)
 
-### ขั้นที่ 5 — แก้ hearings.php
-เปิด `src/pages/hearings.php` แล้ว:
+---
 
-1. เพิ่มบรรทัดนี้ต้นไฟล์:
-```php
-require_once '../config/csrf_helper.php';
-```
+## 🚀 Setup ใหม่
 
-2. หาโค้ดส่วนนี้:
-```php
-if (!empty($pending)) {
-    $fidList = implode(',', array_column(array_values($pending), 'filing_id'));
-    if ($fidList) {
-        $hStmt = $pdo->query("
-            SELECT ... WHERE filing_id IN ($fidList)
-        ");
-```
-**แทนที่ด้วย:**
-```php
-if (!empty($pending)) {
-    $fidList      = array_column(array_values($pending), 'filing_id');
-    $placeholders = implode(',', array_fill(0, count($fidList), '?'));
-    $hStmt = $pdo->prepare("
-        SELECT filing_id, hearing_date, hearing_time, hearing_round, status, notes
-        FROM court_hearings
-        WHERE filing_id IN ($placeholders)
-        ORDER BY hearing_date DESC
-    ");
-    $hStmt->execute($fidList);
-```
-
-3. เพิ่ม `csrf_verify();` ต้น POST handler block
-4. เพิ่ม `<?= csrf_field() ?>` ในทุก `<form method="POST">`
-
-### ขั้นที่ 6 — แก้ client_sign_docs.php
-เปิด `src/pages/client_sign_docs.php` แล้ว:
-
-1. เพิ่มบรรทัดนี้ต้นไฟล์:
-```php
-require_once '../config/csrf_helper.php';
-require_once '../config/file_upload_helper.php';
-```
-
-2. แทนที่ upload handlers ทั้ง 3 ตัว (`upload_doc`, `upload_signed`, `delete_doc`)
-   ด้วยโค้ดจากไฟล์ `client_sign_docs_patch.php`
-
-3. เพิ่ม `<?= csrf_field() ?>` ในทุก `<form method="POST">`
-
-### ขั้นที่ 7 — แก้ Nginx config
-แทนที่ `docker/nginx/default.conf` ด้วยไฟล์ `nginx_security_headers.conf`
-แล้ว restart docker:
 ```bash
-docker-compose restart law_nginx
+# 1. Clone / วางไฟล์โปรเจค
+git clone <repo>
+cd law_management_system
+
+# 2. Start (init.sql จะรันอัตโนมัติผ่าน Docker volume)
+docker-compose up -d
+
+# 3. รอ ~15 วินาที แล้วเปิด
+# http://localhost:8080  (Web App)
+# http://localhost:8081  (phpMyAdmin)
 ```
 
-### ขั้นที่ 8 — เพิ่ม csrf_field() ในไฟล์ที่เหลือ
-ไฟล์เหล่านี้มีฟอร์ม POST ต้องเพิ่ม `<?= csrf_field() ?>` และ `csrf_verify()` ด้วย:
-
-- `dashboard.php`
-- `contracts.php`
-- `contract_documents.php`
-- `case_documents_ext.php`
-- `case_summary.php`
-- `verdicts.php`
-- `send_request.php`
-- `lawyers.php`
-- `clients.php`
-- `profile.php`
-- `register.php`
-- `filings.php`
-
-**วิธีเพิ่มอย่างเร็ว:**
-- ทุกไฟล์: เพิ่ม `require_once '../config/csrf_helper.php';` ต้นไฟล์
-- ทุก POST handler: เพิ่ม `csrf_verify();` บรรทัดแรก
-- ทุก `<form method="POST">`: เพิ่ม `<?= csrf_field() ?>` บรรทัดแรกในฟอร์ม
-
----
-
-## สรุปช่องโหว่ที่แก้ในแต่ละไฟล์
-
-| ช่องโหว่ | ไฟล์ที่แก้ |
-|---|---|
-| Session Fixation | `login.php` |
-| Rate Limiting | `login.php` |
-| Logout Cookie | `logout.php` |
-| Missing Authorization | `case_requests.php` |
-| IDOR ใน Payment | `payments.php` |
-| Race Condition | `payments.php` |
-| Raw SQL จาก Array | `hearings.php` |
-| Path Traversal | `client_sign_docs.php` |
-| File MIME Validation | `client_sign_docs.php`, `payments.php` |
-| Security Headers | `nginx/default.conf` |
-| CSRF | ทุกไฟล์ที่มีฟอร์ม POST |
+> admin password จะถูก hash อัตโนมัติโดย `docker/php/init-hash.sh` ตอน container start

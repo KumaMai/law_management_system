@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/file_upload_helper.php';
 requireLogin();
 
 if ($_SESSION['role'] !== 'client') {
@@ -84,18 +85,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $file     = $_FILES['document'];
         $origName = basename($file['name']);
-        $ext      = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
-        $allowed  = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'];
         $maxSize  = 10 * 1024 * 1024;
 
-        if (!in_array($ext, $allowed)) {
-            $error = 'ประเภทไฟล์ไม่รองรับ (รองรับ: PDF, DOC, DOCX, JPG, PNG)';
-        } elseif ($file['size'] > $maxSize) {
-            $error = 'ไฟล์มีขนาดเกิน 10MB';
-        } elseif ($file['error'] !== UPLOAD_ERR_OK) {
-            $error = 'เกิดข้อผิดพลาดในการอัปโหลด กรุณาลองใหม่';
+        // ── ตรวจ MIME type จริง + ขนาดไฟล์ ──
+        $up = validateUpload($file, MIME_DOCS, $maxSize);
+        if (!$up['ok']) {
+            $error = $up['error'] === 'ประเภทไฟล์ไม่รองรับ'
+                ? 'ประเภทไฟล์ไม่รองรับ (รองรับ: PDF, DOC, DOCX, JPG, PNG)'
+                : $up['error'];
         } else {
-            $newName   = 'contract_' . $contractId . '_' . time() . '_' . uniqid() . '.' . $ext;
+            $newName   = 'contract_' . $contractId . '_' . time() . '_' . uniqid() . '.' . $up['ext'];
             $uploadDir = '/var/www/html/uploads/contracts/';
             $filePath  = $uploadDir . $newName;
 

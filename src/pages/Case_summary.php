@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/file_upload_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -414,7 +415,15 @@ table.htable tr:nth-child(even) td{background:#f7f9fb;}
         $uploadTmpDir = '/tmp/extra_pdfs_' . $ts . '/';
         mkdir($uploadTmpDir, 0755, true);
         foreach ($_FILES['extra_pdfs']['tmp_name'] as $idx => $tmpFile) {
-            if ($tmpFile && $_FILES['extra_pdfs']['error'][$idx] === 0) {
+            if ($tmpFile && $_FILES['extra_pdfs']['error'][$idx] === UPLOAD_ERR_OK) {
+                // ── ตรวจ MIME type จริง (PDF เท่านั้น เพราะไปรวมเข้าสำนวนคดี) ──
+                $singleFile = [
+                    'tmp_name' => $tmpFile,
+                    'error'    => $_FILES['extra_pdfs']['error'][$idx],
+                    'size'     => $_FILES['extra_pdfs']['size'][$idx],
+                ];
+                $up = validateUpload($singleFile, MIME_PDF, 50 * 1024 * 1024);
+                if (!$up['ok']) continue; // ข้ามไฟล์ที่ไม่ใช่ PDF จริง
                 $label    = trim($_POST['extra_pdf_labels'][$idx] ?? '');
                 $destFile = $uploadTmpDir . 'extra_' . $idx . '.pdf';
                 move_uploaded_file($tmpFile, $destFile);

@@ -18,19 +18,12 @@ $userId   = $_SESSION['user_id'];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'upload_qr') {
     csrf_verify();
     if ($role !== 'lawyer') { header('Location: /pages/payments.php?error=permission'); exit; }
-    if (!empty($_FILES['qr_file']['tmp_name']) && $_FILES['qr_file']['error'] === 0) {
-        $ext = strtolower(pathinfo($_FILES['qr_file']['name'], PATHINFO_EXTENSION));
- 
-        // ── แก้ File Upload: ตรวจ MIME type จริง ──
-        $finfo    = finfo_open(FILEINFO_MIME_TYPE);
-        $mimeType = finfo_file($finfo, $_FILES['qr_file']['tmp_name']);
-        finfo_close($finfo);
-        $allowedMime = ['image/jpeg', 'image/png'];
- 
-        if (in_array($mimeType, $allowedMime) && $_FILES['qr_file']['size'] <= 5*1024*1024) {
+    if (!empty($_FILES['qr_file']['tmp_name']) && $_FILES['qr_file']['error'] !== UPLOAD_ERR_NO_FILE) {
+        $up = validateUpload($_FILES['qr_file'], MIME_IMAGES, 5 * 1024 * 1024);
+        if ($up['ok']) {
             $saveDir = '/var/www/html/uploads/qr_codes/';
             if (!is_dir($saveDir)) mkdir($saveDir, 0755, true);
-            $newName = 'qr_lawyer_' . $userId . '_' . time() . '.' . $ext;
+            $newName = 'qr_lawyer_' . $userId . '_' . time() . '.' . $up['ext'];
             move_uploaded_file($_FILES['qr_file']['tmp_name'], $saveDir . $newName);
             $lpRow = $pdo->prepare("SELECT lawyer_id FROM lawyer_profiles WHERE user_id=?");
             $lpRow->execute([$userId]);
@@ -86,19 +79,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay')
     }
  
     $slipFile = null;
-    if (!empty($_FILES['slip_file']['tmp_name']) && $_FILES['slip_file']['error'] === 0) {
-        $ext = strtolower(pathinfo($_FILES['slip_file']['name'], PATHINFO_EXTENSION));
- 
-        // ── แก้ File Upload: ตรวจ MIME type จริง ──
-        $finfo    = finfo_open(FILEINFO_MIME_TYPE);
-        $mimeType = finfo_file($finfo, $_FILES['slip_file']['tmp_name']);
-        finfo_close($finfo);
-        $allowedMime = ['image/jpeg', 'image/png', 'application/pdf'];
- 
-        if (in_array($mimeType, $allowedMime) && $_FILES['slip_file']['size'] <= 10*1024*1024) {
+    if (!empty($_FILES['slip_file']['tmp_name']) && $_FILES['slip_file']['error'] !== UPLOAD_ERR_NO_FILE) {
+        // ── ตรวจ MIME type จริง (PDF, JPG, PNG) ──
+        $up = validateUpload($_FILES['slip_file'], MIME_PDF_IMGS, 10 * 1024 * 1024);
+        if ($up['ok']) {
             $saveDir = '/var/www/html/uploads/payment_slips/';
             if (!is_dir($saveDir)) mkdir($saveDir, 0755, true);
-            $slipFile = 'slip_' . $contractId . '_' . time() . '_' . uniqid() . '.' . $ext;
+            $slipFile = 'slip_' . $contractId . '_' . time() . '_' . uniqid() . '.' . $up['ext'];
             move_uploaded_file($_FILES['slip_file']['tmp_name'], $saveDir . $slipFile);
         }
     }

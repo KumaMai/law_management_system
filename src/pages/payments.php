@@ -1028,9 +1028,10 @@ function openVoidModal(paymentId, contractId, amount) {
     setTimeout(() => document.getElementById('void-note').focus(), 100);
 }
 function closeVoidModal() { document.getElementById('voidModal').style.display = 'none'; }
-document.getElementById('voidModal')?.addEventListener('click', function(e) { if(e.target===this) closeVoidModal(); });
-document.getElementById('voidForm')?.addEventListener('submit', async function(e) {
+document.addEventListener('DOMContentLoaded',function(){var v=document.getElementById('voidModal');if(v)v.addEventListener('click',function(e){if(e.target===this)closeVoidModal();});});
+document.addEventListener('DOMContentLoaded',function(){var vf=document.getElementById('voidForm');if(vf)vf.addEventListener('submit', async function(e) {
     e.preventDefault();
+    closeVoidModal();
     const confirm = await Swal.fire({
         icon:'warning', title:'ยืนยัน Void รายการ?',
         html:`รายการ <b>${document.getElementById('void-amount-label').textContent}</b> จะถูกยกเลิก<br><small style="color:#94a3b8">ยอดชำระสะสมจะถูกคำนวณใหม่ทันที</small>`,
@@ -1043,12 +1044,11 @@ document.getElementById('voidForm')?.addEventListener('submit', async function(e
     try {
         const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: new FormData(this) });
         const data = await res.json();
-        closeVoidModal();
         if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
         else Swal.fire({icon:'error',title:'ผิดพลาด',text:data.msg,confirmButtonColor:'#1a3a5c'});
     } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
     finally { btn.disabled=false; btn.textContent=orig; }
-});
+});});
 </script>
 
 <?php if ($role === 'admin'): ?>

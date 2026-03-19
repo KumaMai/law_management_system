@@ -320,20 +320,20 @@ function openAdminCancelModal(requestId, label) {
     document.getElementById('acModal').style.display = 'flex';
 }
 function closeAcModal() { document.getElementById('acModal').style.display = 'none'; }
-document.getElementById('acModal')?.addEventListener('click', function(e) { if(e.target===this) closeAcModal(); });
-document.getElementById('acForm')?.addEventListener('submit', async function(e) {
+document.addEventListener('DOMContentLoaded',function(){var ac=document.getElementById('acModal');if(ac)ac.addEventListener('click',function(e){if(e.target===this)closeAcModal();});});
+document.addEventListener('DOMContentLoaded',function(){var af=document.getElementById('acForm');if(af)af.addEventListener('submit', async function(e) {
     e.preventDefault();
+    closeAcModal();
     const btn = document.getElementById('acSubmitBtn'), orig = btn.textContent;
     btn.disabled=true; btn.textContent='⏳...';
     try {
         const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: new FormData(this) });
         const data = await res.json();
-        closeAcModal();
         if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
         else Swal.fire({icon:'error',title:'ผิดพลาด',text:data.msg,confirmButtonColor:'#1a3a5c'});
     } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
     finally { btn.disabled=false; btn.textContent=orig; }
-});
+});});
 </script>
 
 <?php if ($role === 'admin'): ?>

@@ -880,9 +880,10 @@ function openForceTerminateModal(contractId, label) {
     document.getElementById('ftModal').style.display = 'flex';
 }
 function closeFtModal() { document.getElementById('ftModal').style.display = 'none'; }
-document.getElementById('ftModal')?.addEventListener('click', function(e) { if(e.target===this) closeFtModal(); });
-document.getElementById('ftForm')?.addEventListener('submit', async function(e) {
+document.addEventListener('DOMContentLoaded',function(){var e=document.getElementById('ftModal');if(e)e.addEventListener('click',function(ev){if(ev.target===this)closeFtModal();});});
+document.addEventListener('DOMContentLoaded',function(){var ftF=document.getElementById('ftForm');if(ftF)ftF.addEventListener('submit', async function(e) {
     e.preventDefault();
+    closeFtModal();
     const confirm = await Swal.fire({
         icon:'warning', title:'ยืนยัน Force Terminate?',
         html:`สัญญานี้จะถูก <b>ปิดทันที</b> และไม่สามารถย้อนกลับได้<br><small style="color:#94a3b8">ลูกความและทนายจะไม่สามารถดำเนินการต่อได้</small>`,
@@ -895,12 +896,11 @@ document.getElementById('ftForm')?.addEventListener('submit', async function(e) 
     try {
         const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: new FormData(this) });
         const data = await res.json();
-        closeFtModal();
         if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
         else Swal.fire({icon:'error',title:'ผิดพลาด',text:data.msg,confirmButtonColor:'#1a3a5c'});
     } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
     finally { btn.disabled=false; btn.textContent=orig; }
-});
+});});
 
 // ── Admin: Edit Fee ──
 function openEditFeeModal(contractId, currentFee) {
@@ -910,20 +910,20 @@ function openEditFeeModal(contractId, currentFee) {
     setTimeout(() => document.getElementById('ef-fee-amount').focus(), 100);
 }
 function closeEfModal() { document.getElementById('efModal').style.display = 'none'; }
-document.getElementById('efModal')?.addEventListener('click', function(e) { if(e.target===this) closeEfModal(); });
-document.getElementById('efForm')?.addEventListener('submit', async function(e) {
+document.addEventListener('DOMContentLoaded',function(){var e=document.getElementById('efModal');if(e)e.addEventListener('click',function(ev){if(ev.target===this)closeEfModal();});});
+document.addEventListener('DOMContentLoaded',function(){var efF=document.getElementById('efForm');if(efF)efF.addEventListener('submit', async function(e) {
     e.preventDefault();
+    closeEfModal();
     const btn = document.getElementById('efFeeSubmitBtn'), orig = btn.textContent;
     btn.disabled=true; btn.textContent='⏳...';
     try {
         const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: new FormData(this) });
         const data = await res.json();
-        closeEfModal();
         if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
         else Swal.fire({icon:'error',title:'ผิดพลาด',text:data.msg,confirmButtonColor:'#1a3a5c'});
     } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
     finally { btn.disabled=false; btn.textContent=orig; }
-});
+});});
 </script>
 
 <?php if ($role === 'admin'): ?>

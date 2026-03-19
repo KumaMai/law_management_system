@@ -1,6 +1,6 @@
 # ⚖️ ระบบจัดการคดีความ (Law Case Management System)
 
-**สำนักงานพันชรรม | v4.3 — March 2026**
+**สำนักงานพันชรรม | v4.4 — March 2026**
 
 ---
 
@@ -23,7 +23,7 @@
 git clone <repo> && cd law_management_system
 docker-compose up -d
 # http://localhost:8080  (Web)
-# http://localhost:8081  (phpMyAdmin)
+# http://localhost:8081  (phpMyAdmin — DB: law_system)
 ```
 
 | Role | Username | Password |
@@ -40,18 +40,18 @@ docker-compose up -d
 law_management_system/
 ├── docker-compose.yml
 ├── docker/
-│   ├── nginx/default.conf         ← Security headers + deny PHP in uploads
+│   ├── nginx/default.conf         ← Security headers + deny PHP in /uploads/
 │   ├── php/Dockerfile + init-hash.sh
 │   └── mysql/
-│       ├── init.sql                ← Schema v4.1 ครบ 18 ตาราง
+│       ├── init.sql                ← Schema v4.1 ครบ 18 ตาราง (รวม migrations)
 │       └── migrations/             ← archived
-└── src/                            ← mount เป็น /var/www/html ใน container
+└── src/                            ← mount → /var/www/html ใน container
     ├── index.php
     ├── config/
     │   ├── db.php / auth.php / csrf_helper.php
     │   └── file_upload_helper.php  ← validateUpload() + MIME constants
     ├── includes/ header.php footer.php
-    ├── pages/  (ดูตารางด้านล่าง)
+    ├── pages/  (24 หน้า — ดูตารางด้านล่าง)
     └── uploads/ contracts/ case_docs/ summaries/
                  sign_docs/ lawyer_photos/ client_photos/
                  payment_slips/ qr_codes/
@@ -69,59 +69,67 @@ law_management_system/
 | register.php | ลูกความสมัครเอง |
 
 ### Admin — จัดการระบบ
-| หน้า | v | สิทธิ์ |
-|---|---|---|
-| lawyers.php | 4.1 | เพิ่ม, แก้ไข, ระงับ/เปิดใช้, แสดงใบอนุญาตหมดอายุ |
-| clients.php | 4.1 | เพิ่ม, แก้ไข, ระงับ/เปิดใช้ |
-| users.php | 4.1 | ดูทุก role, Reset Password, Toggle Status |
-| courts.php | 4.1 | CRUD + Merge ศาลซ้ำ |
-| reports.php | 4.3 | KPI 7 ตัว, Charts, Top Lawyers, Overdue, Export CSV 3 ประเภท |
-| settings.php | 4.3 | ข้อมูลสำนักงาน, Upload โลโก้, เปลี่ยน PW Admin, System Info |
+| หน้า | Actions |
+|---|---|
+| lawyers.php | เพิ่ม · แก้ไข · ระงับ/เปิดใช้ · 🗑️ ลบ (block ถ้ามีคดี active) |
+| clients.php | เพิ่ม · แก้ไข · ระงับ/เปิดใช้ · 🗑️ ลบ (block ถ้ามีคดี active) |
+| users.php | ดูทุก role · Reset Password · Toggle Status |
+| courts.php | เพิ่ม · แก้ไข · ลบ · Merge ศาลซ้ำ |
+| reports.php | KPI 7 ตัว · Charts · Top Lawyers · Overdue · Export CSV 3 ประเภท |
+| settings.php | ข้อมูลสำนักงาน · Upload Logo · เปลี่ยน PW Admin · System Info |
 
-### คดีความ
-| หน้า | Admin Override | ทนาย | ลูกความ |
-|---|---|---|---|
-| case_requests.php | Force Expire, Cancel+Terminate cascade | รับ/ปฏิเสธ | ดู |
-| contracts.php | Force Terminate, แก้ค่าธรรมเนียม | ต่อรอง, finalize | ต่อรองตอบกลับ |
-| filings.php | Edit+Delete (block ถ้ามีนัด/verdict) | เพิ่ม | — |
-| hearings.php | เหมือนทนาย | เพิ่ม/แก้ไข/ลบ, auto-reschedule | — |
-| Verdicts.php | เหมือนทนาย | บันทึก/แก้ไข | — |
-| send_request.php | — | — | ส่งคำขอว่าจ้าง |
-| my_cases.php | — | — | ดูคดีของตัวเอง, ต่อรองตอบกลับ |
+### Admin — คดีความ (Override)
+| หน้า | สิทธิ์พิเศษ Admin |
+|---|---|
+| case_requests.php | Force Expire · Cancel + Terminate cascade |
+| contracts.php | Force Terminate + เหตุผล · แก้ค่าธรรมเนียม |
+| filings.php | Edit (ศาล/เลขคดี/ข้อหา/วันที่) · Delete (block ถ้ามีนัด/verdict) |
+| payments.php | Void confirmed payment + recalculate + revert contract |
 
-### เอกสาร & การเงิน
-| หน้า | Admin Override | ทนาย | ลูกความ |
-|---|---|---|---|
-| payments.php | Void confirmed payment | ยืนยัน/ปฏิเสธ, เงินสด | ส่งสลิป |
-| contract_documents.php | — | — | อัปโหลดเอกสาร |
-| client_sign_docs.php | ดูทั้งหมด | ส่งเอกสาร, รับกลับ | รับ/ส่งกลับ |
-| case_documents_ext.php | ดูทั้งหมด | อัปโหลด | — |
-| Case_summary.php | ดูทั้งหมด | Export PDF | — |
+### คดีความ (ทนาย)
+| หน้า | สิทธิ์ |
+|---|---|
+| case_requests.php | รับ/ปฏิเสธคำขอ |
+| contracts.php | ต่อรอง · finalize · reject |
+| filings.php | เพิ่มการยื่นฟ้อง |
+| hearings.php | เพิ่ม/แก้ไข/ลบนัด · auto-reschedule |
+| Verdicts.php | บันทึก/แก้คำพิพากษา |
 
-### อื่นๆ
+### บริการ (ลูกความ)
+| หน้า | สิทธิ์ |
+|---|---|
+| send_request.php | ส่งคำขอว่าจ้าง (หมดอายุ 14 วัน) |
+| my_cases.php | ดูคดี · ต่อรองตอบกลับ |
+| contract_documents.php | อัปโหลดเอกสาร |
+| payments.php | ส่งสลิปชำระ |
+
+### เอกสาร & อื่นๆ
 | หน้า | ใช้ได้กับ |
 |---|---|
+| client_sign_docs.php | ทนายส่ง → ลูกความเซ็นส่งกลับ |
+| case_documents_ext.php | ทนายอัปโหลดเอกสารภายนอก |
+| Case_summary.php | ทนาย Export PDF สำนวนคดี |
 | dashboard.php | ทุก role (widget ต่างกัน) |
-| Profile.php | ทุก role (read-only, แก้ผ่าน dashboard) |
+| Profile.php | ทุก role (read-only) |
 
 ---
 
 ## Flow 13 ขั้นตอน
 
 ```
-1.  Admin → lawyers.php          สร้างบัญชีทนาย
-2.  Client → register.php        สมัครสมาชิก (หรือ Admin → clients.php)
-3.  Client → send_request.php    ส่งคำขอ (หมดอายุ 14 วัน)
-4.  Lawyer → case_requests.php   รับ → ระบบสร้าง Contract อัตโนมัติ
-5.  Client → contract_documents  อัปโหลดเอกสาร
+1.  Admin → lawyers.php           สร้างบัญชีทนาย
+2.  Client → register.php         สมัครสมาชิก (หรือ Admin → clients.php)
+3.  Client → send_request.php     ส่งคำขอ (หมดอายุ 14 วัน)
+4.  Lawyer → case_requests.php    รับ → ระบบสร้าง Contract อัตโนมัติ
+5.  Client → contract_documents   อัปโหลดเอกสาร
 6.  Lawyer/Client → contracts.php ต่อรองค่าธรรมเนียม (หลายรอบ)
-7.  Lawyer → filings.php         ยื่นฟ้อง (1 contract = 1 filing)
-8.  Lawyer → hearings.php        นัดขึ้นศาล + auto-reschedule
-9.  Lawyer → Verdicts.php        บันทึกคำพิพากษา → status = completed
-10. Client → payments.php        ชำระเงิน (Transaction + FOR UPDATE)
-11. Lawyer → client_sign_docs    ส่งเอกสาร → Client ส่งกลับ
-12. Lawyer → Case_summary.php    Export PDF สำนวนคดี
-13. Client → dashboard.php       รีวิวทนาย 1-5 ดาว (หลังคดีปิดเท่านั้น)
+7.  Lawyer → filings.php          ยื่นฟ้อง (1 contract = 1 filing)
+8.  Lawyer → hearings.php         นัดขึ้นศาล + auto-reschedule
+9.  Lawyer → Verdicts.php         บันทึกคำพิพากษา → status = completed
+10. Client → payments.php         ชำระเงิน (Transaction + FOR UPDATE)
+11. Lawyer → client_sign_docs     ส่งเอกสาร → Client ส่งกลับ
+12. Lawyer → Case_summary.php     Export PDF สำนวนคดี
+13. Client → dashboard.php        รีวิวทนาย 1-5 ดาว (หลังคดีปิดเท่านั้น)
 ```
 
 ---
@@ -131,20 +139,19 @@ law_management_system/
 ```
 case_requests.status:
   pending → approved (ระบบสร้าง contract) / rejected / expired
-  Admin: force_expire, admin_cancel + cascade terminate
+  Admin: force_expire · admin_cancel + cascade terminate contract
 
 contracts.contract_review_status:
-  pending_lawyer_review
-  → lawyer_accepted → finalized
+  pending_lawyer_review → lawyer_accepted → finalized
   → revision_requested ↔ negotiating → finalized
-  → lawyer_rejected (→ status=terminated)
-  Admin: force_terminate, edit_fee
+  → lawyer_rejected (contracts.status = terminated)
+  Admin: force_terminate · edit_fee
 
-contracts.status:      active → completed / terminated
+contracts.status:         active → completed / terminated
 contracts.payment_status: pending → partial → paid
-payments.status:       pending → confirmed / rejected
-                       Admin: void (confirmed→rejected + recalculate)
-client_sign_docs.status: pending → acknowledged → signed / rejected
+payments.status:          pending → confirmed / rejected
+                          Admin: void (confirmed→rejected + recalculate + revert)
+client_sign_docs.status:  pending → acknowledged → signed / rejected
 ```
 
 ---
@@ -162,7 +169,7 @@ client_sign_docs.status: pending → acknowledged → signed / rejected
 | Reference | courts |
 
 **Columns พิเศษใน contracts:**
-`contract_review_status`, `negotiation_status` (DEFAULT 'accepted'), `negotiated_at`, `fee_amount`, `proposed_fee`, `lawyer_note`, `client_response`
+`contract_review_status` · `negotiation_status` (DEFAULT 'accepted') · `negotiated_at` · `fee_amount` · `proposed_fee` · `lawyer_note` · `client_response`
 
 ---
 
@@ -174,40 +181,48 @@ client_sign_docs.status: pending → acknowledged → signed / rejected
 | Missing Authorization | 🔴 | AND lawyer_id=? / office_id check ทุก handler |
 | IDOR payments | 🔴 | JOIN verify payment→contract→office |
 | Race Condition | 🟠 | BEGIN TRANSACTION + SELECT FOR UPDATE |
-| File Upload | 🟠 | validateUpload() + finfo_file() 9 จุด |
+| File Upload (9 จุด) | 🟠 | validateUpload() + finfo_file() |
 | CSRF | 🟡 | csrf_field() + csrf_verify() ทุก POST |
 | Rate Limiting | 🟡 | 10 ครั้ง/15 นาที (login) |
 | XSS | 🟡 | htmlspecialchars() ทุก output |
 | Password | 🟡 | ≥8+upper+lower+digit |
 | citizen_id | 🟡 | mask 193•••••••61 |
 | Logout | 🟢 | session_destroy() + setcookie expire |
-| Headers | 🟢 | X-Frame-Options, X-Content-Type-Options (nginx) |
-| PHP in uploads | 🟢 | nginx deny .php in /uploads/ |
+| Headers + PHP in uploads | 🟢 | nginx config |
 
-### MIME Constants (file_upload_helper.php)
+### MIME Constants
 `MIME_IMAGES` · `MIME_PDF` · `MIME_PDF_IMGS` · `MIME_DOCS` · `MIME_DOCS_FULL`
 
 ---
 
 ## Changelog
 
-### v4.3 (March 2026) — Bug Fixed
-- **Bug fix:** `contracts.php`, `case_requests.php` — Mixed PDO named/positional parameters → Fatal Error
-- **Bug fix:** `settings.php` — Raw SQL interpolation + DOCUMENT_ROOT path ผิด
-- **ใหม่:** `reports.php` — KPI, Chart.js Bar+Line+Doughnut, Export CSV
-- **ใหม่:** `settings.php` — Office info, Logo upload, Change PW, System Info
+### v4.4-hotfix (March 2026)
+- **Bug fix:** `payments.php`, `contracts.php`, `case_requests.php`, `filings.php` — Modal ยังเปิดอยู่ขณะ Swal confirm แสดง ทำให้ z-index บัง Swal → แก้โดยเรียก `closeModal()` ก่อนแสดง Swal confirm เสมอ
+
+### v4.4 (March 2026)
+- **Bug fix:** Script อยู่ก่อน modal HTML (อยู่ใน `<?php if admin:?>`) → `getElementById` คืน null → ใช้ `DOMContentLoaded` wrapper
+- **ใหม่:** `lawyers.php` — ปุ่มลบทนาย (block ถ้ามีคดี active)
+- **ใหม่:** `clients.php` — ปุ่มลบลูกความ (block ถ้ามีคดี active)
+
+### v4.3 (March 2026)
+- **Bug fix:** Mixed PDO named+positional → Fatal Error (`contracts.php`, `case_requests.php`)
+- **Bug fix:** Raw SQL interpolation + upload path ผิด (`settings.php`)
+- **Bug fix:** contracts.php ปีกกาเกิน
+- **ใหม่:** `reports.php` — KPI, Charts, Export CSV
+- **ใหม่:** `settings.php` — Office info, Logo, Change PW
 
 ### v4.2 (March 2026)
 - `case_requests.php` — Admin Force Expire + Cancel cascade
 - `contracts.php` — Admin Force Terminate + Edit Fee
-- `filings.php` — Edit + Delete (block ถ้ามีนัด/verdict)
-- `payments.php` — Admin Void confirmed + revert contract
+- `filings.php` — Edit + Delete (admin)
+- `payments.php` — Admin Void confirmed
 
 ### v4.1 (March 2026)
 - ใหม่: `courts.php` — CRUD + Merge ศาลซ้ำ
 - ใหม่: `users.php` — Reset PW + Toggle Status
 - `lawyers.php` / `clients.php` — Edit + Deactivate/Activate
-- `init.sql` — เพิ่ม negotiation_status + negotiated_at (bug fix)
+- `init.sql` — เพิ่ม `negotiation_status` + `negotiated_at` (bug fix)
 
 ### v4.0 (March 2026)
 - File Upload MIME validation ครบ 9 จุด
@@ -217,8 +232,11 @@ client_sign_docs.status: pending → acknowledged → signed / rejected
 
 ## หมายเหตุสำคัญ
 
-- `index.php` บรรทัดแรก = `<?php` เท่านั้น (ห้ามมี HTML)
-- `nginx root = /var/www/html` (src/ mount ตรงนี้)
-- Upload path = `/var/www/html/uploads/` (hardcode, ไม่ใช้ DOCUMENT_ROOT)
+- `index.php` บรรทัดแรก = `<?php` เท่านั้น (ห้ามมี HTML comment)
+- `nginx root = /var/www/html` (src/ mount ที่นี่)
+- Upload path = `/var/www/html/uploads/` (hardcode เสมอ ห้ามใช้ `$_SERVER['DOCUMENT_ROOT']`)
 - ทุก POST ต้องมี `csrf_field()` + `csrf_verify()`
-- ทุก upload ต้องใช้ `validateUpload()` จาก file_upload_helper.php
+- ทุก upload ใช้ `validateUpload()` จาก `file_upload_helper.php`
+- ห้าม mix PDO named `:param` กับ positional `?` ใน query เดียวกัน
+- Admin modal ทุกอัน: ต้องเรียก `closeModal()` **ก่อน** แสดง Swal confirm (z-index issue)
+- JS ที่ bind event บน admin modal ต้องใช้ `DOMContentLoaded` wrapper เสมอ

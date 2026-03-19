@@ -131,6 +131,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Location: /pages/clients.php'); exit;
 }
 
+// ---- ลบบัญชีลูกความ (admin) ----
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_client') {
+    csrf_verify();
+    $isAjax   = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
+    $clientId = (int)$_POST['client_id'];
+
+    $owner = $pdo->prepare("SELECT cp.user_id FROM client_profiles cp JOIN users u ON cp.user_id=u.user_id WHERE cp.client_id=? AND u.office_id=?");
+    $owner->execute([$clientId, $officeId]);
+    $ownerRow = $owner->fetch();
+
+    if (!$ownerRow) {
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบลูกความหรือไม่มีสิทธิ์']); exit; }
+    } else {
+        $hasActive = $pdo->prepare("SELECT COUNT(*) FROM case_requests cr JOIN contracts c ON c.request_id=cr.request_id WHERE cr.client_id=? AND c.status='active'");
+        $hasActive->execute([$clientId]);
+        if ((int)$hasActive->fetchColumn() > 0) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ ลูกความมีคดีที่กำลังดำเนินการอยู่']); exit; }
+        } else {
+            try {
+                $pdo->beginTransaction();
+                $pdo->prepare("DELETE FROM client_profiles WHERE client_id=?")->execute([$clientId]);
+                $pdo->prepare("DELETE FROM users WHERE user_id=?")->execute([$ownerRow['user_id']]);
+                $pdo->commit();
+                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบบัญชีลูกความเรียบร้อยแล้ว']); exit; }
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ อาจมีข้อมูลที่เชื่อมโยงอยู่']); exit; }
+            }
+        }
+    }
+    header('Location: /pages/clients.php'); exit;
+}
+
 $stmt = $pdo->prepare("
     SELECT cp.*, u.email, u.username, u.status AS user_status
     FROM client_profiles cp
@@ -199,6 +232,7 @@ include '../includes/header.php';
                 <?php else: ?>
                 <button class="action-btn btn-activate" onclick="toggleStatus(<?= $c['client_id'] ?>, 'active', <?= json_encode($c['fname'].' '.$c['lname']) ?>)">✅ เปิดใช้</button>
                 <?php endif; ?>
+                <button class="action-btn" style="background:#fee2e2;color:#991b1b;" onclick="deleteClient(<?= $c['client_id'] ?>, <?= json_encode($c['fname'].' '.$c['lname']) ?>)">🗑️ ลบ</button>
             </td>
         </tr>
         <?php endforeach; ?>
@@ -303,5 +337,24 @@ async function handleSubmit(fid,bid){
 }
 document.getElementById('addForm').addEventListener('submit',e=>{e.preventDefault();handleSubmit('addForm','addBtn');});
 document.getElementById('editForm').addEventListener('submit',e=>{e.preventDefault();handleSubmit('editForm','editBtn');});
+
+async function deleteClient(id, name) {
+    const r = await Swal.fire({
+        icon:'warning', title:'ลบบัญชีลูกความ?',
+        html:`ลบ <b>"${name}"</b> ออกจากระบบ?<br><small style="color:#dc2626">จะลบได้เฉพาะลูกความที่ไม่มีคดี active อยู่</small>`,
+        showCancelButton:true, confirmButtonText:'🗑️ ลบ', cancelButtonText:'ยกเลิก',
+        confirmButtonColor:'#dc2626', cancelButtonColor:'#94a3b8',
+    });
+    if (!r.isConfirmed) return;
+    const fd = new FormData();
+    fd.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+    fd.append('action','delete_client'); fd.append('client_id',id);
+    try {
+        const res = await fetch(location.pathname,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:fd});
+        const data = await res.json();
+        if(data.ok){await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false});location.reload();}
+        else Swal.fire({icon:'error',title:'ลบไม่ได้',text:data.msg,confirmButtonColor:'#1a3a5c'});
+    } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
+}
 </script>
 <?php include '../includes/footer.php'; ?>

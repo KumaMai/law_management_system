@@ -557,9 +557,7 @@ function openEditFilingModal(d) {
 function closeEditFilingModal() {
     document.getElementById('editFilingModal').style.display = 'none';
 }
-document.getElementById('editFilingModal')?.addEventListener('click', function(e) {
-    if (e.target === this) closeEditFilingModal();
-});
+document.addEventListener('DOMContentLoaded',function(){var ef=document.getElementById('editFilingModal');if(ef)ef.addEventListener('click',function(e){if(e.target===this)closeEditFilingModal();});});
 
 const efCourtInput    = document.getElementById('ef-court-input');
 const efCourtDropdown = document.getElementById('ef-court-dropdown');
@@ -601,19 +599,19 @@ document.addEventListener('click', e => {
         efCourtDropdown.classList.remove('open');
 });
 
-document.getElementById('editFilingForm')?.addEventListener('submit', async function(e) {
+document.addEventListener('DOMContentLoaded',function(){var eff=document.getElementById('editFilingForm');if(eff)eff.addEventListener('submit', async function(e) {
     e.preventDefault();
+    closeEditFilingModal();
     const btn = document.getElementById('efSubmitBtn'), orig = btn.textContent;
     btn.disabled = true; btn.textContent = '⏳...';
     try {
         const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: new FormData(this) });
         const data = await res.json();
-        closeEditFilingModal();
         if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
         else Swal.fire({icon:'error',title:'ผิดพลาด',text:data.msg,confirmButtonColor:'#1a3a5c'});
     } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
     finally { btn.disabled=false; btn.textContent=orig; }
-});
+});});
 
 async function deleteFiling(id, caseNum) {
     const result = await Swal.fire({

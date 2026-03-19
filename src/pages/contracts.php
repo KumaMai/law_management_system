@@ -157,6 +157,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // ---- ลูกความ: ยอมรับ/โต้กลับ/ปฏิเสธ ----
+    // ---- Admin: Force Terminate สัญญา ----
+    if ($action === 'force_terminate' && $role === 'admin') {
+        $contractId = (int)($_POST['contract_id'] ?? 0);
+        $reason     = trim($_POST['reason'] ?? '');
+
+        $chk = $pdo->prepare("
+            SELECT con.contract_id FROM contracts con
+            JOIN case_requests cr ON con.request_id = cr.request_id
+            WHERE con.contract_id = ? AND cr.office_id = ?
+              AND con.status NOT IN ('completed','terminated')
+        ");
+        $chk->execute([$contractId, $officeId]);
+        if (!$chk->fetch()) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบสัญญาหรือสัญญาปิดแล้ว']); exit; }
+        } else {
+            $note = 'ปิดโดย Admin' . ($reason ? ': '.$reason : '');
+            $pdo->prepare("
+                UPDATE contracts SET status='terminated',
+                    lawyer_note=CONCAT(COALESCE(lawyer_note,''), ' | ', ?)
+                WHERE contract_id=?
+            ")->execute([$note, $contractId]);
+            // อัปเดต case_request ด้วย
+            $pdo->prepare("
+                UPDATE case_requests SET status='rejected', reject_reason=?
+                WHERE request_id=(SELECT request_id FROM contracts WHERE contract_id=?)
+                  AND status NOT IN ('rejected','expired')
+            ")->execute([$note, $contractId]);
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ปิดสัญญาเรียบร้อยแล้ว']); exit; }
+        }
+    }
+
+    // ---- Admin: แก้ไขค่าธรรมเนียม ----
+    if ($action === 'edit_fee' && $role === 'admin') {
+        $contractId = (int)($_POST['contract_id'] ?? 0);
+        $newFee     = $_POST['fee_amount'] !== '' ? (float)$_POST['fee_amount'] : null;
+
+        $chk = $pdo->prepare("
+            SELECT con.contract_id FROM contracts con
+            JOIN case_requests cr ON con.request_id = cr.request_id
+            WHERE con.contract_id = ? AND cr.office_id = ?
+        ");
+        $chk->execute([$contractId, $officeId]);
+        if (!$chk->fetch()) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบสัญญาหรือไม่มีสิทธิ์']); exit; }
+        } else {
+            $pdo->prepare("UPDATE contracts SET fee_amount=? WHERE contract_id=?")->execute([$newFee, $contractId]);
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'แก้ไขค่าธรรมเนียมเรียบร้อยแล้ว']); exit; }
+        }
+    }
+    // ---- ลูกความ: ยอมรับ/โต้กลับ/ปฏิเสธ ----
     if (in_array($action, ['client_accept','client_counter','client_reject']) && $role === 'client') {
         $cp = $pdo->prepare("SELECT client_id FROM client_profiles WHERE user_id=?");
         $cp->execute([$userId]);
@@ -555,6 +605,19 @@ include '../includes/header.php';
                 </button>
                 <?php endif; ?>
             <?php endif; ?>
+
+            <?php if ($role === 'admin'): ?>
+            <button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;border:none;cursor:pointer;font-weight:700;"
+                onclick="openEditFeeModal(<?= $c['contract_id'] ?>, <?= (float)($c['fee_amount'] ?? 0) ?>)">
+                💰 แก้ค่าธรรมเนียม
+            </button>
+            <?php if ($c['status'] === 'active'): ?>
+            <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;cursor:pointer;font-weight:700;"
+                onclick="openForceTerminateModal(<?= $c['contract_id'] ?>, <?= json_encode($c['client_name'].' / '.$c['lawyer_name']) ?>)">
+                🛑 Force Terminate
+            </button>
+            <?php endif; ?>
+            <?php endif; ?>
         </div>
 
         </div><!-- end collapsible body -->
@@ -808,6 +871,117 @@ document.addEventListener('DOMContentLoaded', function() {
         if (icon) icon.style.transform = 'rotate(180deg)';
     }
 });
+
+// ── Admin: Force Terminate ──
+function openForceTerminateModal(contractId, label) {
+    document.getElementById('ft-contract-id').value = contractId;
+    document.getElementById('ft-label').textContent = label;
+    document.getElementById('ft-reason').value = '';
+    document.getElementById('ftModal').style.display = 'flex';
+}
+function closeFtModal() { document.getElementById('ftModal').style.display = 'none'; }
+document.getElementById('ftModal')?.addEventListener('click', function(e) { if(e.target===this) closeFtModal(); });
+document.getElementById('ftForm')?.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const confirm = await Swal.fire({
+        icon:'warning', title:'ยืนยัน Force Terminate?',
+        html:`สัญญานี้จะถูก <b>ปิดทันที</b> และไม่สามารถย้อนกลับได้<br><small style="color:#94a3b8">ลูกความและทนายจะไม่สามารถดำเนินการต่อได้</small>`,
+        showCancelButton:true, confirmButtonText:'🛑 ยืนยันปิดสัญญา', cancelButtonText:'ยกเลิก',
+        confirmButtonColor:'#dc2626', cancelButtonColor:'#94a3b8',
+    });
+    if (!confirm.isConfirmed) return;
+    const btn = document.getElementById('ftSubmitBtn'), orig = btn.textContent;
+    btn.disabled=true; btn.textContent='⏳...';
+    try {
+        const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: new FormData(this) });
+        const data = await res.json();
+        closeFtModal();
+        if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
+        else Swal.fire({icon:'error',title:'ผิดพลาด',text:data.msg,confirmButtonColor:'#1a3a5c'});
+    } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
+    finally { btn.disabled=false; btn.textContent=orig; }
+});
+
+// ── Admin: Edit Fee ──
+function openEditFeeModal(contractId, currentFee) {
+    document.getElementById('ef-contract-id').value  = contractId;
+    document.getElementById('ef-fee-amount').value   = currentFee > 0 ? currentFee : '';
+    document.getElementById('efModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('ef-fee-amount').focus(), 100);
+}
+function closeEfModal() { document.getElementById('efModal').style.display = 'none'; }
+document.getElementById('efModal')?.addEventListener('click', function(e) { if(e.target===this) closeEfModal(); });
+document.getElementById('efForm')?.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('efFeeSubmitBtn'), orig = btn.textContent;
+    btn.disabled=true; btn.textContent='⏳...';
+    try {
+        const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: new FormData(this) });
+        const data = await res.json();
+        closeEfModal();
+        if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
+        else Swal.fire({icon:'error',title:'ผิดพลาด',text:data.msg,confirmButtonColor:'#1a3a5c'});
+    } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
+    finally { btn.disabled=false; btn.textContent=orig; }
+});
 </script>
+
+<?php if ($role === 'admin'): ?>
+<!-- Modal: Force Terminate -->
+<div id="ftModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:16px;">
+<div style="background:#fff;border-radius:16px;padding:28px 32px;width:100%;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;color:#dc2626;">🛑 Force Terminate สัญญา</h3>
+        <button onclick="closeFtModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.84rem;color:#991b1b;">
+        ⚠️ สัญญานี้จะถูกปิดทันที <b>ไม่สามารถย้อนกลับได้</b>
+    </div>
+    <div style="font-size:.87rem;color:#374151;margin-bottom:14px;">
+        สัญญาของ: <b id="ft-label"></b>
+    </div>
+    <form id="ftForm">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="force_terminate">
+        <input type="hidden" name="contract_id" id="ft-contract-id">
+        <div class="form-group" style="margin-bottom:14px;">
+            <label>เหตุผล (ไม่บังคับ)</label>
+            <textarea name="reason" id="ft-reason" rows="3"
+                style="width:100%;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.87rem;resize:vertical;"
+                placeholder="ระบุเหตุผลการปิดสัญญา..."></textarea>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button type="button" onclick="closeFtModal()" style="padding:9px 20px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;font-weight:700;cursor:pointer;">ยกเลิก</button>
+            <button type="submit" id="ftSubmitBtn" style="padding:9px 24px;background:#dc2626;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">🛑 ยืนยันปิดสัญญา</button>
+        </div>
+    </form>
+</div></div>
+
+<!-- Modal: Edit Fee -->
+<div id="efModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:16px;">
+<div style="background:#fff;border-radius:16px;padding:28px 32px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;color:#1a3a5c;">💰 แก้ไขค่าธรรมเนียม</h3>
+        <button onclick="closeEfModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:9px 13px;margin-bottom:14px;font-size:.8rem;color:#92400e;">
+        ℹ️ การแก้ไขค่าธรรมเนียมจะมีผลกับการคำนวณยอดชำระที่เหลือทันที
+    </div>
+    <form id="efForm">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="edit_fee">
+        <input type="hidden" name="contract_id" id="ef-contract-id">
+        <div class="form-group" style="margin-bottom:14px;">
+            <label>ค่าธรรมเนียม (บาท) <span style="color:red">*</span></label>
+            <input type="number" name="fee_amount" id="ef-fee-amount" step="0.01" min="0" placeholder="ระบุยอด"
+                style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:.87rem;outline:none;" required>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button type="button" onclick="closeEfModal()" style="padding:9px 20px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;font-weight:700;cursor:pointer;">ยกเลิก</button>
+            <button type="submit" id="efFeeSubmitBtn" style="padding:9px 24px;background:#1a3a5c;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">💾 บันทึก</button>
+        </div>
+    </form>
+</div></div>
+<?php endif; ?>
 
 <?php include '../includes/footer.php'; ?>

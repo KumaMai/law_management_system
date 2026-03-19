@@ -289,8 +289,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_c
 }
 
 // ==============================
-// ดึงรายการสัญญา
+// Handle: Admin — Void รายการที่ confirmed แล้ว
 // ==============================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'void_payment') {
+    $isAjax    = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
+    csrf_verify();
+
+    if ($role !== 'admin') {
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'เฉพาะ Admin เท่านั้น']); exit; }
+        header('Location: /pages/payments.php?error=permission'); exit;
+    }
+
+    $paymentId  = (int)$_POST['payment_id'];
+    $contractId = (int)$_POST['contract_id'];
+    $voidNote   = trim($_POST['void_note'] ?? 'Admin void รายการผิดพลาด');
+
+    // ตรวจ ownership + ต้องเป็น confirmed เท่านั้น
+    $verify = $pdo->prepare("
+        SELECT p.payment_id, p.status
+        FROM payments p
+        JOIN contracts c  ON p.contract_id  = c.contract_id
+        JOIN case_requests cr ON c.request_id = cr.request_id
+        WHERE p.payment_id  = ?
+          AND p.contract_id = ?
+          AND cr.office_id  = ?
+    ");
+    $verify->execute([$paymentId, $contractId, $officeId]);
+    $payRow = $verify->fetch();
+
+    if (!$payRow) {
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบรายการหรือไม่มีสิทธิ์']); exit; }
+        header('Location: /pages/payments.php?error=permission'); exit;
+    }
+    if ($payRow['status'] !== 'confirmed') {
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'Void ได้เฉพาะรายการที่ confirmed แล้วเท่านั้น']); exit; }
+        header('Location: /pages/payments.php?contract_id='.$contractId); exit;
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        // เปลี่ยน status → rejected พร้อมบันทึกเหตุผล
+        $pdo->prepare("
+            UPDATE payments
+            SET status='rejected',
+                note = CONCAT(COALESCE(note,''), IF(note IS NOT NULL AND note != '', ' | ', ''), '[VOID] ', ?),
+                confirmed_at = NOW(),
+                confirmed_by = ?
+            WHERE payment_id=?
+        ")->execute([$voidNote, $userId, $paymentId]);
+
+        // คำนวณ payment_status ใหม่
+        $feeRow = $pdo->prepare("SELECT fee_amount FROM contracts WHERE contract_id=? FOR UPDATE");
+        $feeRow->execute([$contractId]);
+        $feeAmount = (float)($feeRow->fetchColumn() ?? 0);
+
+        $paidRow = $pdo->prepare("SELECT COALESCE(SUM(amount),0) FROM payments WHERE contract_id=? AND status='confirmed'");
+        $paidRow->execute([$contractId]);
+        $totalPaid = (float)$paidRow->fetchColumn();
+
+        if ($feeAmount > 0 && $totalPaid >= $feeAmount)  $ps = 'paid';
+        elseif ($totalPaid > 0)                           $ps = 'partial';
+        else                                              $ps = 'pending';
+
+        $pdo->prepare("UPDATE contracts SET payment_status=? WHERE contract_id=?")->execute([$ps, $contractId]);
+
+        // ถ้า contract ถูก completed เพราะ payment นี้ → revert กลับเป็น active
+        // (เฉพาะกรณีไม่มี verdict และ payment ก่อนหน้าก็ไม่ครบ)
+        if ($ps !== 'paid') {
+            $pdo->prepare("
+                UPDATE contracts SET status='active'
+                WHERE contract_id = ?
+                  AND status = 'completed'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM verdicts v
+                      JOIN filings f ON v.filing_id = f.filing_id
+                      WHERE f.contract_id = ?
+                  )
+            ")->execute([$contractId, $contractId]);
+        }
+
+        $pdo->commit();
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => true, 'msg' => '🚫 Void รายการชำระเงินเรียบร้อยแล้ว']);
+            exit;
+        }
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        error_log('Void payment error: ' . $e->getMessage());
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'เกิดข้อผิดพลาดในระบบ']); exit; }
+        header('Location: /pages/payments.php?contract_id='.$contractId.'&error=system');
+        exit;
+    }
+
+    header('Location: /pages/payments.php?contract_id='.$contractId.'&updated=1');
+    exit;
+}
 if ($role === 'client') {
     $cp = $pdo->prepare("SELECT client_id FROM client_profiles WHERE user_id=?");
     $cp->execute([$userId]);
@@ -776,6 +872,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     onclick="submitPaymentAction(this.closest('form'), 'ปฏิเสธรายการชำระเงินนี้?', 'ปฏิเสธ', '#dc2626')">❌ ปฏิเสธ</button>
           </form>
           <?php endif; ?>
+          <?php if ($role === 'admin' && $p['status'] === 'confirmed'): ?>
+          <button class="btn-sm" style="background:#fef3c7;color:#92400e;border:none;cursor:pointer;font-weight:700;padding:4px 10px;border-radius:6px;font-size:.73rem;"
+              onclick="openVoidModal(<?= $p['payment_id'] ?>, <?= $selectedId ?>, <?= number_format((float)$p['amount'], 2, '.', '') ?>)">
+              🚫 Void
+          </button>
+          <?php endif; ?>
         </div>
       </div>
       <?php endforeach; ?>
@@ -915,6 +1017,72 @@ async function submitPaymentAction(form, confirmText, confirmBtnText, confirmCol
         }
     } catch { Swal.fire({ icon:'error', title:'ผิดพลาด', text:'ไม่สามารถเชื่อมต่อได้', confirmButtonColor:'#1a3a5c' }); btn.disabled = false; }
 }
+
+// ── Admin: Void Payment ──
+function openVoidModal(paymentId, contractId, amount) {
+    document.getElementById('void-payment-id').value  = paymentId;
+    document.getElementById('void-contract-id').value = contractId;
+    document.getElementById('void-amount-label').textContent = Number(amount).toLocaleString('th-TH', {minimumFractionDigits:2}) + ' บาท';
+    document.getElementById('void-note').value = '';
+    document.getElementById('voidModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('void-note').focus(), 100);
+}
+function closeVoidModal() { document.getElementById('voidModal').style.display = 'none'; }
+document.getElementById('voidModal')?.addEventListener('click', function(e) { if(e.target===this) closeVoidModal(); });
+document.getElementById('voidForm')?.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const confirm = await Swal.fire({
+        icon:'warning', title:'ยืนยัน Void รายการ?',
+        html:`รายการ <b>${document.getElementById('void-amount-label').textContent}</b> จะถูกยกเลิก<br><small style="color:#94a3b8">ยอดชำระสะสมจะถูกคำนวณใหม่ทันที</small>`,
+        showCancelButton:true, confirmButtonText:'🚫 Void', cancelButtonText:'ยกเลิก',
+        confirmButtonColor:'#d97706', cancelButtonColor:'#94a3b8',
+    });
+    if (!confirm.isConfirmed) return;
+    const btn = document.getElementById('voidSubmitBtn'), orig = btn.textContent;
+    btn.disabled=true; btn.textContent='⏳...';
+    try {
+        const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: new FormData(this) });
+        const data = await res.json();
+        closeVoidModal();
+        if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
+        else Swal.fire({icon:'error',title:'ผิดพลาด',text:data.msg,confirmButtonColor:'#1a3a5c'});
+    } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
+    finally { btn.disabled=false; btn.textContent=orig; }
+});
 </script>
+
+<?php if ($role === 'admin'): ?>
+<!-- Modal: Void Payment -->
+<div id="voidModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:16px;">
+<div style="background:#fff;border-radius:16px;padding:28px 32px;width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;color:#d97706;">🚫 Void รายการชำระเงิน</h3>
+        <button onclick="closeVoidModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#94a3b8;">✕</button>
+    </div>
+    <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:9px 13px;margin-bottom:14px;font-size:.83rem;color:#92400e;">
+        ⚠️ Void ได้เฉพาะรายการที่ <b>ยืนยันแล้ว (confirmed)</b> เท่านั้น<br>
+        ยอดชำระสะสมจะถูกคำนวณใหม่ทันที และ contract อาจ revert กลับเป็น active
+    </div>
+    <div style="font-size:.87rem;margin-bottom:14px;">
+        จำนวนเงิน: <b id="void-amount-label" style="color:#1a3a5c;"></b>
+    </div>
+    <form id="voidForm">
+        <?= csrf_field() ?>
+        <input type="hidden" name="action" value="void_payment">
+        <input type="hidden" name="payment_id" id="void-payment-id">
+        <input type="hidden" name="contract_id" id="void-contract-id">
+        <div class="form-group" style="margin-bottom:14px;">
+            <label>เหตุผลการ Void <span style="color:red">*</span></label>
+            <textarea name="void_note" id="void-note" rows="3" required
+                style="width:100%;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:.87rem;resize:vertical;"
+                placeholder="ระบุเหตุผล เช่น ยืนยันผิดพลาด, ยอดเงินไม่ตรง..."></textarea>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button type="button" onclick="closeVoidModal()" style="padding:9px 20px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;font-weight:700;cursor:pointer;">ยกเลิก</button>
+            <button type="submit" id="voidSubmitBtn" style="padding:9px 24px;background:#d97706;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">🚫 Void รายการ</button>
+        </div>
+    </form>
+</div></div>
+<?php endif; ?>
 
 <?php include '../includes/footer.php'; ?>

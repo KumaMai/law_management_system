@@ -14,7 +14,11 @@ $contractId = isset($_GET['contract_id']) ? (int)$_GET['contract_id'] : null;
 // Add filing (lawyer/admin)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])) {
     csrf_verify();
-    $isAjax      = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
+    $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
+    $action = $_POST['action'] ?? 'add';
+
+    // ---- เพิ่มการยื่นฟ้อง ----
+    if ($action === 'add') {
     $courtInput  = trim($_POST['court_input'] ?? '');
     $newContract = (int)$_POST['contract_id'];
     $courtId     = null;
@@ -62,6 +66,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
     }
     header('Location: /pages/filings.php');
     exit;
+    } // end add
+
+    // ---- แก้ไขการยื่นฟ้อง ----
+    if ($action === 'edit') {
+        $filingId   = (int)$_POST['filing_id'];
+        $courtInput = trim($_POST['court_input'] ?? '');
+        $caseNumber = trim($_POST['case_number'] ?? '');
+        $charge     = trim($_POST['charge'] ?? '');
+        $filingDate = $_POST['filing_date'] ?? '';
+
+        // ตรวจ ownership — filing ต้องอยู่ใน office เดียวกัน
+        $chk = $pdo->prepare("
+            SELECT f.filing_id FROM filings f
+            JOIN contracts con ON f.contract_id = con.contract_id
+            JOIN case_requests cr ON con.request_id = cr.request_id
+            WHERE f.filing_id = ? AND cr.office_id = ?
+        ");
+        $chk->execute([$filingId, $officeId]);
+        if (!$chk->fetch()) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบข้อมูลหรือไม่มีสิทธิ์']); exit; }
+            header('Location: /pages/filings.php'); exit;
+        }
+
+        // ตรวจ case_number ซ้ำ (ยกเว้นตัวเอง)
+        if ($caseNumber) {
+            $dupCase = $pdo->prepare("SELECT filing_id FROM filings WHERE case_number = ? AND filing_id != ?");
+            $dupCase->execute([$caseNumber, $filingId]);
+            if ($dupCase->fetch()) {
+                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'เลขคดีนี้มีอยู่ในระบบแล้ว']); exit; }
+            }
+        }
+
+        // หา/สร้าง court
+        $courtId = null;
+        if ($courtInput !== '') {
+            $matchStmt = $pdo->prepare("SELECT court_id FROM courts WHERE court_name = ? LIMIT 1");
+            $matchStmt->execute([$courtInput]);
+            $matched = $matchStmt->fetchColumn();
+            if ($matched) {
+                $courtId = (int)$matched;
+            } else {
+                $pdo->prepare("INSERT INTO courts (court_name) VALUES (?)")->execute([$courtInput]);
+                $courtId = (int)$pdo->lastInsertId();
+            }
+        }
+
+        $pdo->prepare("
+            UPDATE filings SET court_id=?, case_number=?, charge=?, filing_date=?
+            WHERE filing_id=?
+        ")->execute([$courtId, $caseNumber ?: null, $charge ?: null, $filingDate ?: null, $filingId]);
+
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'แก้ไขข้อมูลการยื่นฟ้องเรียบร้อยแล้ว']); exit; }
+        header('Location: /pages/filings.php'); exit;
+    }
+
+    // ---- ลบการยื่นฟ้อง (admin only) ----
+    if ($action === 'delete' && $role === 'admin') {
+        $filingId = (int)$_POST['filing_id'];
+
+        // ตรวจ ownership
+        $chk = $pdo->prepare("
+            SELECT f.filing_id FROM filings f
+            JOIN contracts con ON f.contract_id = con.contract_id
+            JOIN case_requests cr ON con.request_id = cr.request_id
+            WHERE f.filing_id = ? AND cr.office_id = ?
+        ");
+        $chk->execute([$filingId, $officeId]);
+        if (!$chk->fetch()) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบข้อมูลหรือไม่มีสิทธิ์']); exit; }
+        }
+
+        // ตรวจว่ามีนัดขึ้นศาลหรือคำพิพากษาผูกอยู่
+        $hasHearings = $pdo->prepare("SELECT COUNT(*) FROM court_hearings WHERE filing_id=?");
+        $hasHearings->execute([$filingId]);
+        $hasVerdicts = $pdo->prepare("SELECT COUNT(*) FROM verdicts WHERE filing_id=?");
+        $hasVerdicts->execute([$filingId]);
+
+        if ((int)$hasHearings->fetchColumn() > 0 || (int)$hasVerdicts->fetchColumn() > 0) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ มีนัดขึ้นศาลหรือคำพิพากษาผูกอยู่กับการยื่นฟ้องนี้']); exit; }
+        } else {
+            $pdo->prepare("DELETE FROM filings WHERE filing_id=?")->execute([$filingId]);
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบการยื่นฟ้องเรียบร้อยแล้ว']); exit; }
+        }
+        header('Location: /pages/filings.php'); exit;
+    }
 }
 
 // Fetch filings
@@ -185,7 +274,7 @@ include '../includes/header.php';
             <tr>
                 <th>#</th><th>ลูกความ</th><th>ทนาย</th>
                 <th>ศาล</th><th>เลขคดี</th><th>ข้อหา</th>
-                <th>วันที่ยื่นฟ้อง</th><th></th>
+                <th>วันที่ยื่นฟ้อง</th><th>จัดการ</th>
             </tr>
         </thead>
         <tbody>
@@ -201,6 +290,20 @@ include '../includes/header.php';
                 <td>
                     <a href="/pages/hearings.php?filing_id=<?= $f['filing_id'] ?>"
                        class="btn btn-primary btn-sm">📅 นัดขึ้นศาล</a>
+                    <?php if (in_array($role, ['admin','lawyer'])): ?>
+                    <button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;border:none;cursor:pointer;font-weight:700;"
+                        onclick='openEditFilingModal(<?= json_encode([
+                            "filing_id"   => (int)$f["filing_id"],
+                            "court_name"  => $f["court_display"],
+                            "case_number" => $f["case_number"] ?? "",
+                            "charge"      => $f["charge"] ?? "",
+                            "filing_date" => $f["filing_date"] ?? "",
+                        ], JSON_UNESCAPED_UNICODE) ?>)'>✏️ แก้ไข</button>
+                    <?php endif; ?>
+                    <?php if ($role === 'admin'): ?>
+                    <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;cursor:pointer;font-weight:700;"
+                        onclick="deleteFiling(<?= $f['filing_id'] ?>, <?= json_encode($f['case_number'] ?? '#'.$f['filing_id']) ?>)">🗑️ ลบ</button>
+                    <?php endif; ?>
                 </td>
             </tr>
         <?php endforeach; ?>
@@ -440,6 +543,141 @@ window.addEventListener('DOMContentLoaded', () => {
     if (sel) { sel.value = '<?= $contractId ?>'; showContractInfo('<?= $contractId ?>'); }
     <?php endif; ?>
 });
+
+// ── Edit filing ──
+function openEditFilingModal(d) {
+    document.getElementById('ef-filing-id').value   = d.filing_id;
+    document.getElementById('ef-court-input').value = d.court_name;
+    document.getElementById('ef-case-number').value = d.case_number;
+    document.getElementById('ef-charge').value      = d.charge;
+    document.getElementById('ef-filing-date').value = d.filing_date;
+    updateEditBadge(d.court_name);
+    document.getElementById('editFilingModal').style.display = 'flex';
+}
+function closeEditFilingModal() {
+    document.getElementById('editFilingModal').style.display = 'none';
+}
+document.getElementById('editFilingModal')?.addEventListener('click', function(e) {
+    if (e.target === this) closeEditFilingModal();
+});
+
+const efCourtInput    = document.getElementById('ef-court-input');
+const efCourtDropdown = document.getElementById('ef-court-dropdown');
+const efCourtBadge    = document.getElementById('ef-court-badge');
+let efActiveIdx = -1;
+function renderEditOptions(filter) {
+    const q = (filter||'').trim().toLowerCase();
+    const matched = knownCourts.filter(c => !q || c.toLowerCase().includes(q));
+    efCourtDropdown.innerHTML = '';
+    efActiveIdx = -1;
+    matched.forEach(name => {
+        const div = document.createElement('div');
+        div.className = 'court-option';
+        div.textContent = name;
+        div.addEventListener('mousedown', e => { e.preventDefault(); efCourtInput.value = name; efCourtDropdown.classList.remove('open'); updateEditBadge(name); });
+        efCourtDropdown.appendChild(div);
+    });
+    const exact = knownCourts.some(c => c.toLowerCase() === q);
+    if (q && !exact) {
+        const div = document.createElement('div');
+        div.className = 'court-option new-entry';
+        div.textContent = `✏️ ใช้ "${filter.trim()}" (ศาลใหม่)`;
+        div.addEventListener('mousedown', e => { e.preventDefault(); efCourtInput.value = filter.trim(); efCourtDropdown.classList.remove('open'); updateEditBadge(filter.trim()); });
+        efCourtDropdown.appendChild(div);
+    }
+    efCourtDropdown.classList.toggle('open', efCourtDropdown.children.length > 0);
+}
+function updateEditBadge(val) {
+    const isKnown = knownCourts.some(c => c.toLowerCase() === val.trim().toLowerCase());
+    if (!val.trim()) { efCourtBadge.className='court-match-badge'; efCourtBadge.textContent=''; }
+    else if (isKnown) { efCourtBadge.className='court-match-badge found'; efCourtBadge.textContent='✅ พบในฐานข้อมูล'; }
+    else { efCourtBadge.className='court-match-badge new'; efCourtBadge.textContent='✏️ ศาลใหม่ — จะเพิ่มอัตโนมัติ'; }
+}
+efCourtInput?.addEventListener('focus',  () => renderEditOptions(efCourtInput.value));
+efCourtInput?.addEventListener('input',  () => { renderEditOptions(efCourtInput.value); updateEditBadge(efCourtInput.value); });
+efCourtInput?.addEventListener('blur',   () => setTimeout(() => efCourtDropdown.classList.remove('open'), 150));
+document.addEventListener('click', e => {
+    if (!document.getElementById('ef-court-wrap')?.contains(e.target))
+        efCourtDropdown.classList.remove('open');
+});
+
+document.getElementById('editFilingForm')?.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const btn = document.getElementById('efSubmitBtn'), orig = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳...';
+    try {
+        const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: new FormData(this) });
+        const data = await res.json();
+        closeEditFilingModal();
+        if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
+        else Swal.fire({icon:'error',title:'ผิดพลาด',text:data.msg,confirmButtonColor:'#1a3a5c'});
+    } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
+    finally { btn.disabled=false; btn.textContent=orig; }
+});
+
+async function deleteFiling(id, caseNum) {
+    const result = await Swal.fire({
+        icon: 'warning', title: 'ลบการยื่นฟ้อง?',
+        html: `ลบการยื่นฟ้อง <b>"${caseNum}"</b>?<br><small style="color:#94a3b8">จะลบได้เฉพาะกรณีที่ยังไม่มีนัดขึ้นศาลหรือคำพิพากษา</small>`,
+        showCancelButton: true, confirmButtonText: '🗑️ ลบ', cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#dc2626', cancelButtonColor: '#94a3b8',
+    });
+    if (!result.isConfirmed) return;
+    const fd = new FormData();
+    fd.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+    fd.append('action', 'delete'); fd.append('filing_id', id);
+    try {
+        const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body:fd });
+        const data = await res.json();
+        if (data.ok) { await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false}); location.reload(); }
+        else Swal.fire({icon:'error',title:'ลบไม่ได้',text:data.msg,confirmButtonColor:'#1a3a5c'});
+    } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
+}
 </script>
+
+<?php if (in_array($role, ['admin','lawyer'])): ?>
+<!-- Modal: แก้ไขการยื่นฟ้อง -->
+<div id="editFilingModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:16px;">
+    <div style="background:#fff;border-radius:16px;padding:28px 32px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="margin:0;color:#1a3a5c;">✏️ แก้ไขการยื่นฟ้อง</h3>
+            <button onclick="closeEditFilingModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#94a3b8;">✕</button>
+        </div>
+        <form id="editFilingForm">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="edit">
+            <input type="hidden" name="filing_id" id="ef-filing-id">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                <div class="form-group" style="grid-column:1/-1;">
+                    <label>ศาล <span style="color:red">*</span></label>
+                    <div class="court-input-wrap" id="ef-court-wrap">
+                        <input type="text" name="court_input" id="ef-court-input"
+                               placeholder="พิมพ์ชื่อศาล..." autocomplete="off" required>
+                        <span class="court-arrow">▾</span>
+                        <div class="court-dropdown" id="ef-court-dropdown"></div>
+                    </div>
+                    <span class="court-match-badge" id="ef-court-badge"></span>
+                </div>
+                <div class="form-group">
+                    <label>เลขคดี</label>
+                    <input type="text" name="case_number" id="ef-case-number" placeholder="เช่น 123/2568">
+                </div>
+                <div class="form-group">
+                    <label>ข้อหา</label>
+                    <input type="text" name="charge" id="ef-charge">
+                </div>
+                <div class="form-group">
+                    <label>วันที่ยื่นฟ้อง</label>
+                    <input type="date" name="filing_date" id="ef-filing-date">
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">
+                <button type="button" onclick="closeEditFilingModal()" style="padding:9px 20px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;font-weight:700;cursor:pointer;">ยกเลิก</button>
+                <button type="submit" id="efSubmitBtn" style="padding:9px 24px;background:#1a3a5c;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">💾 บันทึก</button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
 
 <?php include '../includes/footer.php'; ?>

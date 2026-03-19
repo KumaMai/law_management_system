@@ -114,6 +114,10 @@ $_sb_cur = basename($_SERVER['PHP_SELF']);
         <div class="sb-section">จัดการระบบ</div>
         <a href="/pages/lawyers.php"           class="sb-link <?= $_sb_cur==='lawyers.php'?'active':'' ?>"><span class="sb-link-icon">👨‍⚖️</span><span class="sb-link-text sb-hide-collapsed">ทนายความ</span></a>
         <a href="/pages/clients.php"           class="sb-link <?= $_sb_cur==='clients.php'?'active':'' ?>"><span class="sb-link-icon">👤</span><span class="sb-link-text sb-hide-collapsed">ลูกความ</span></a>
+        <a href="/pages/users.php"             class="sb-link <?= $_sb_cur==='users.php'?'active':'' ?>"><span class="sb-link-icon">👥</span><span class="sb-link-text sb-hide-collapsed">จัดการผู้ใช้</span></a>
+        <a href="/pages/courts.php"            class="sb-link <?= $_sb_cur==='courts.php'?'active':'' ?>"><span class="sb-link-icon">🏛️</span><span class="sb-link-text sb-hide-collapsed">ข้อมูลศาล</span></a>
+        <a href="/pages/reports.php"           class="sb-link <?= $_sb_cur==='reports.php'?'active':'' ?>"><span class="sb-link-icon">📊</span><span class="sb-link-text sb-hide-collapsed">รายงาน</span></a>
+        <a href="/pages/settings.php"          class="sb-link <?= $_sb_cur==='settings.php'?'active':'' ?>"><span class="sb-link-icon">⚙️</span><span class="sb-link-text sb-hide-collapsed">ตั้งค่า</span></a>
         <div class="sb-section">คดีความ</div>
         <a href="/pages/case_requests.php"     class="sb-link <?= $_sb_cur==='case_requests.php'?'active':'' ?>"><span class="sb-link-icon">📋</span><span class="sb-link-text sb-hide-collapsed">คำขอว่าจ้าง</span></a>
         <a href="/pages/contracts.php"         class="sb-link <?= $_sb_cur==='contracts.php'?'active':'' ?>"><span class="sb-link-icon">📄</span><span class="sb-link-text sb-hide-collapsed">สัญญา</span></a>

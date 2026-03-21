@@ -210,17 +210,17 @@ include '../includes/header.php';
             </td>
             <td>
                 <button class="action-btn btn-edit"
-                    onclick="openEditModal(<?= $c['court_id'] ?>, <?= json_encode($c['court_name']) ?>, <?= json_encode($c['court_type'] ?? '') ?>, <?= json_encode($c['location'] ?? '') ?>)">
+                    onclick='openEditModal(<?= $c["court_id"] ?>, <?= json_encode($c["court_name"], JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($c["court_type"] ?? "", JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($c["location"] ?? "", JSON_UNESCAPED_UNICODE) ?>)'>
                     ✏️ แก้ไข
                 </button>
                 <?php if ($totalCourts > 1): ?>
                 <button class="action-btn btn-merge"
-                    onclick="openMergeModal(<?= $c['court_id'] ?>, <?= json_encode($c['court_name']) ?>)">
+                    onclick='openMergeModal(<?= $c["court_id"] ?>, <?= json_encode($c["court_name"], JSON_UNESCAPED_UNICODE) ?>)'>
                     🔀 รวม
                 </button>
                 <?php endif; ?>
                 <button class="action-btn btn-delete"
-                    onclick="deleteCourt(<?= $c['court_id'] ?>, <?= json_encode($c['court_name']) ?>, <?= $c['filing_count'] ?>)">
+                    onclick='deleteCourt(<?= $c["court_id"] ?>, <?= json_encode($c["court_name"], JSON_UNESCAPED_UNICODE) ?>, <?= $c["filing_count"] ?>)'>
                     🗑️ ลบ
                 </button>
             </td>
@@ -477,9 +477,14 @@ async function handleFormSubmit(formId, btnId) {
     }
 }
 
-document.getElementById('addForm').addEventListener('submit',   e => { e.preventDefault(); handleFormSubmit('addForm',   'addSubmitBtn');   });
-document.getElementById('editForm').addEventListener('submit',  e => { e.preventDefault(); handleFormSubmit('editForm',  'editSubmitBtn');  });
-document.getElementById('mergeForm').addEventListener('submit', async e => {
+document.addEventListener('DOMContentLoaded', function() {
+    var addForm = document.getElementById('addForm');
+    var editForm = document.getElementById('editForm');
+    var mergeForm = document.getElementById('mergeForm');
+
+    if (addForm) addForm.addEventListener('submit', e => { e.preventDefault(); handleFormSubmit('addForm', 'addSubmitBtn'); });
+    if (editForm) editForm.addEventListener('submit', e => { e.preventDefault(); handleFormSubmit('editForm', 'editSubmitBtn'); });
+    if (mergeForm) mergeForm.addEventListener('submit', async e => {
     e.preventDefault();
     const toOpt = document.getElementById('merge-to-select');
     const toName = toOpt.options[toOpt.selectedIndex]?.dataset.name || '?';
@@ -496,7 +501,8 @@ document.getElementById('mergeForm').addEventListener('submit', async e => {
     });
     if (!confirm.isConfirmed) return;
     handleFormSubmit('mergeForm', 'mergeSubmitBtn');
-});
+    });
+}); // end DOMContentLoaded
 </script>
 
 <?php include '../includes/footer.php'; ?>

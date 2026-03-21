@@ -134,41 +134,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    header('Location: /pages/lawyers.php'); exit;
-}
-
-// ---- ลบบัญชีทนาย (admin) ----
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_lawyer') {
-    csrf_verify();
-    $isAjax   = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
-    $lawyerId = (int)$_POST['lawyer_id'];
-
-    // ตรวจ ownership
-    $owner = $pdo->prepare("SELECT lp.user_id FROM lawyer_profiles lp JOIN users u ON lp.user_id=u.user_id WHERE lp.lawyer_id=? AND u.office_id=?");
-    $owner->execute([$lawyerId, $officeId]);
-    $ownerRow = $owner->fetch();
-
-    if (!$ownerRow) {
-        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบทนายหรือไม่มีสิทธิ์']); exit; }
-    } else {
-        // ตรวจว่ามีคดีที่ยังดำเนินการอยู่ไหม
-        $hasActive = $pdo->prepare("SELECT COUNT(*) FROM case_requests cr JOIN contracts c ON c.request_id=cr.request_id WHERE cr.lawyer_id=? AND c.status='active'");
-        $hasActive->execute([$lawyerId]);
-        if ((int)$hasActive->fetchColumn() > 0) {
-            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ ทนายคนนี้มีคดีที่กำลังดำเนินการอยู่']); exit; }
+    // ---- ลบบัญชีทนาย ----
+    if ($action === 'delete_lawyer') {
+        $lawyerId = (int)$_POST['lawyer_id'];
+        $owner = $pdo->prepare("SELECT lp.user_id FROM lawyer_profiles lp JOIN users u ON lp.user_id=u.user_id WHERE lp.lawyer_id=? AND u.office_id=?");
+        $owner->execute([$lawyerId, $officeId]);
+        $ownerRow = $owner->fetch();
+        if (!$ownerRow) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบทนายหรือไม่มีสิทธิ์']); exit; }
         } else {
-            try {
-                $pdo->beginTransaction();
-                $pdo->prepare("DELETE FROM lawyer_profiles WHERE lawyer_id=?")->execute([$lawyerId]);
-                $pdo->prepare("DELETE FROM users WHERE user_id=?")->execute([$ownerRow['user_id']]);
-                $pdo->commit();
-                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบบัญชีทนายเรียบร้อยแล้ว']); exit; }
-            } catch (Exception $e) {
-                $pdo->rollBack();
-                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ อาจมีข้อมูลที่เชื่อมโยงอยู่']); exit; }
+            $hasActive = $pdo->prepare("SELECT COUNT(*) FROM case_requests cr JOIN contracts c ON c.request_id=cr.request_id WHERE cr.lawyer_id=? AND c.status='active'");
+            $hasActive->execute([$lawyerId]);
+            if ((int)$hasActive->fetchColumn() > 0) {
+                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ ทนายคนนี้มีคดีที่กำลังดำเนินการอยู่']); exit; }
+            } else {
+                try {
+                    $pdo->beginTransaction();
+                    $pdo->prepare("DELETE FROM lawyer_profiles WHERE lawyer_id=?")->execute([$lawyerId]);
+                    $pdo->prepare("DELETE FROM users WHERE user_id=?")->execute([$ownerRow['user_id']]);
+                    $pdo->commit();
+                    if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบบัญชีทนายเรียบร้อยแล้ว']); exit; }
+                } catch (Exception $e) {
+                    $pdo->rollBack();
+                    if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ อาจมีข้อมูลที่เชื่อมโยงอยู่']); exit; }
+                }
             }
         }
     }
+
     header('Location: /pages/lawyers.php'); exit;
 }
 
@@ -248,11 +241,11 @@ include '../includes/header.php';
                     "license_exp"=>$l["license_exp"]??""  ,"specialization"=>$l["specialization"]??""  ,"phone"=>$l["phone"]??""
                 ], JSON_UNESCAPED_UNICODE) ?>)'>✏️ แก้ไข</button>
                 <?php if ($isActive): ?>
-                <button class="action-btn btn-suspend" onclick="toggleStatus(<?= $l['lawyer_id'] ?>, 'inactive', <?= json_encode($l['fname'].' '.$l['lname']) ?>)">🔒 ระงับ</button>
+                <button class="action-btn btn-suspend" onclick='toggleStatus(<?= $l["lawyer_id"] ?>, "inactive", <?= json_encode($l["fname"]." ".$l["lname"], JSON_UNESCAPED_UNICODE) ?>)'>🔒 ระงับ</button>
                 <?php else: ?>
-                <button class="action-btn btn-activate" onclick="toggleStatus(<?= $l['lawyer_id'] ?>, 'active', <?= json_encode($l['fname'].' '.$l['lname']) ?>)">✅ เปิดใช้</button>
+                <button class="action-btn btn-activate" onclick='toggleStatus(<?= $l["lawyer_id"] ?>, "active", <?= json_encode($l["fname"]." ".$l["lname"], JSON_UNESCAPED_UNICODE) ?>)'>✅ เปิดใช้</button>
                 <?php endif; ?>
-                <button class="action-btn" style="background:#fee2e2;color:#991b1b;" onclick="deleteLawyer(<?= $l['lawyer_id'] ?>, <?= json_encode($l['fname'].' '.$l['lname']) ?>)">🗑️ ลบ</button>
+                <button class="action-btn" style="background:#fee2e2;color:#991b1b;" onclick='deleteLawyer(<?= $l["lawyer_id"] ?>, <?= json_encode($l["fname"]." ".$l["lname"], JSON_UNESCAPED_UNICODE) ?>)'>🗑️ ลบ</button>
             </td>
         </tr>
         <?php endforeach; ?>
@@ -358,7 +351,30 @@ async function handleSubmit(fid,bid){
     catch{Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'});}
     finally{btn.disabled=false;btn.textContent=orig;}
 }
-document.getElementById('addForm').addEventListener('submit',e=>{e.preventDefault();handleSubmit('addForm','addBtn');});
-document.getElementById('editForm').addEventListener('submit',e=>{e.preventDefault();handleSubmit('editForm','editBtn');});
+document.addEventListener('DOMContentLoaded', function() {
+    var af = document.getElementById('addForm');
+    var ef = document.getElementById('editForm');
+    if (af) af.addEventListener('submit', e => { e.preventDefault(); handleSubmit('addForm', 'addBtn'); });
+    if (ef) ef.addEventListener('submit', e => { e.preventDefault(); handleSubmit('editForm', 'editBtn'); });
+});
+
+async function deleteLawyer(id, name) {
+    const r = await Swal.fire({
+        icon:'warning', title:'ลบบัญชีทนายความ?',
+        html:`ลบ <b>"${name}"</b> ออกจากระบบ?<br><small style="color:#dc2626">จะลบได้เฉพาะทนายที่ไม่มีคดี active อยู่</small>`,
+        showCancelButton:true, confirmButtonText:'🗑️ ลบ', cancelButtonText:'ยกเลิก',
+        confirmButtonColor:'#dc2626', cancelButtonColor:'#94a3b8',
+    });
+    if (!r.isConfirmed) return;
+    const fd = new FormData();
+    fd.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+    fd.append('action','delete_lawyer'); fd.append('lawyer_id',id);
+    try {
+        const res = await fetch(location.pathname,{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:fd});
+        const data = await res.json();
+        if(data.ok){await Swal.fire({icon:'success',title:'สำเร็จ!',text:data.msg,confirmButtonColor:'#1a3a5c',timer:1800,timerProgressBar:true,showConfirmButton:false});location.reload();}
+        else Swal.fire({icon:'error',title:'ลบไม่ได้',text:data.msg,confirmButtonColor:'#1a3a5c'});
+    } catch { Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'}); }
+}
 </script>
 <?php include '../includes/footer.php'; ?>

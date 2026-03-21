@@ -224,16 +224,16 @@ $statusTH = ['pending'=>'รอดำเนินการ','approved'=>'อน�
                 <td style="white-space:nowrap;">
                     <?php if ($r['status'] === 'pending'): ?>
                     <button class="btn btn-sm" style="background:#fef3c7;color:#92400e;border:none;cursor:pointer;font-weight:700;padding:4px 10px;border-radius:6px;"
-                        onclick="forceExpire(<?= $r['request_id'] ?>, <?= json_encode($r['client_name'].' → '.$r['lawyer_name']) ?>)">
+                        onclick='forceExpire(<?= $r["request_id"] ?>, <?= json_encode($r["client_name"]." → ".$r["lawyer_name"], JSON_UNESCAPED_UNICODE) ?>)'>
                         ⌛ Force Expire
                     </button>
                     <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;cursor:pointer;font-weight:700;padding:4px 10px;border-radius:6px;"
-                        onclick="openAdminCancelModal(<?= $r['request_id'] ?>, <?= json_encode($r['client_name'].' → '.$r['lawyer_name']) ?>)">
+                        onclick='openAdminCancelModal(<?= $r["request_id"] ?>, <?= json_encode($r["client_name"]." → ".$r["lawyer_name"], JSON_UNESCAPED_UNICODE) ?>)'>
                         ❌ ยกเลิก
                     </button>
                     <?php elseif ($r['status'] === 'approved'): ?>
                     <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;cursor:pointer;font-weight:700;padding:4px 10px;border-radius:6px;"
-                        onclick="openAdminCancelModal(<?= $r['request_id'] ?>, <?= json_encode($r['client_name'].' → '.$r['lawyer_name']) ?>)">
+                        onclick='openAdminCancelModal(<?= $r["request_id"] ?>, <?= json_encode($r["client_name"]." → ".$r["lawyer_name"], JSON_UNESCAPED_UNICODE) ?>)'>
                         🛑 Cancel + Terminate
                     </button>
                     <?php else: ?>

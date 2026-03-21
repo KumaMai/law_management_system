@@ -95,7 +95,8 @@ if ($role === 'lawyer') {
 }
 
 $stmt = $pdo->prepare("
-    SELECT f.filing_id, f.case_number, f.charge, f.filing_date,
+    SELECT f.filing_id, f.charge, f.scheduled_filing_date,
+           (SELECT MAX(ch.case_number) FROM court_hearings ch WHERE ch.filing_id = f.filing_id) AS case_number,
            ct.court_name,
            CONCAT(cp.fname,' ',cp.lname) AS client_name,
            CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
@@ -110,7 +111,7 @@ $stmt = $pdo->prepare("
     JOIN lawyer_profiles lp ON cr.lawyer_id  = lp.lawyer_id
     LEFT JOIN verdicts v  ON f.filing_id     = v.filing_id
     WHERE cr.office_id = ? $whereExtra
-    ORDER BY v.verdict_date DESC, f.filing_date DESC
+    ORDER BY v.verdict_date DESC, f.scheduled_filing_date DESC
 ");
 $stmt->execute([$officeId]);
 $filings = $stmt->fetchAll();
@@ -213,7 +214,7 @@ include '../includes/header.php';
                 <div class="info-cell"><div class="lbl">👤 ลูกความ (โจทก์)</div><strong><?= htmlspecialchars($f['client_name']) ?></strong></div>
                 <div class="info-cell"><div class="lbl">👨‍⚖️ ทนาย</div><strong><?= htmlspecialchars($f['lawyer_name']) ?></strong></div>
                 <div class="info-cell"><div class="lbl">⚖️ ข้อหา</div><?= htmlspecialchars($f['charge'] ?? '—') ?></div>
-                <div class="info-cell"><div class="lbl">📅 วันยื่นฟ้อง</div><?= $f['filing_date'] ?? '—' ?></div>
+                <div class="info-cell"><div class="lbl">📅 วันนัดยื่นฟ้อง</div><?= $f['scheduled_filing_date'] ?? '—' ?></div>
                 <div class="info-cell" style="grid-column:span 2;"><div class="lbl">📄 รายละเอียดคดี</div><?= htmlspecialchars(mb_substr($f['case_detail']??'—',0,120)) ?></div>
             </div>
 

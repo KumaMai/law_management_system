@@ -109,7 +109,7 @@ $casesStmt = $pdo->prepare("
     SELECT cr.request_id, cr.detail, cr.status, cr.created_at,
            CONCAT(cp.fname,' ',cp.lname) AS client_name,
            CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
-           MAX(f.case_number) AS case_number,
+           (SELECT MAX(ch2.case_number) FROM court_hearings ch2 JOIN filings f2 ON ch2.filing_id=f2.filing_id JOIN contracts con2 ON f2.contract_id=con2.contract_id WHERE con2.request_id=cr.request_id) AS case_number,
            (SELECT COUNT(*) FROM case_summary_docs sd WHERE sd.request_id = cr.request_id) AS doc_count
     FROM case_requests cr
     JOIN client_profiles cp ON cr.client_id = cp.client_id
@@ -134,7 +134,8 @@ if ($selectedId) {
         SELECT cr.request_id, cr.detail, cr.status,
                CONCAT(cp.fname,' ',cp.lname) AS client_name,
                CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
-               f.case_number, ct.court_name
+               (SELECT MAX(ch3.case_number) FROM court_hearings ch3 JOIN filings f3 ON ch3.filing_id=f3.filing_id JOIN contracts con3 ON f3.contract_id=con3.contract_id WHERE con3.request_id=cr.request_id) AS case_number,
+               ct.court_name
         FROM case_requests cr
         JOIN client_profiles cp ON cr.client_id = cp.client_id
         JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id

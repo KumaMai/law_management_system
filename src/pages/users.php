@@ -60,6 +60,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // ---- Delete User ----
+    if ($action === 'delete_user') {
+        if ($userId === $myUserId) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบบัญชีของตัวเองได้']); exit; }
+        } elseif (!$targetUser) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบผู้ใช้หรือไม่มีสิทธิ์']); exit; }
+        } else {
+            // ตรวจว่ามีคดี active ผ่าน lawyer_profiles หรือ client_profiles
+            $hasActiveLawyer = $pdo->prepare("SELECT COUNT(*) FROM case_requests cr JOIN contracts c ON c.request_id=cr.request_id JOIN lawyer_profiles lp ON cr.lawyer_id=lp.lawyer_id WHERE lp.user_id=? AND c.status='active'");
+            $hasActiveLawyer->execute([$userId]);
+            $hasActiveClient = $pdo->prepare("SELECT COUNT(*) FROM case_requests cr JOIN contracts c ON c.request_id=cr.request_id JOIN client_profiles cp ON cr.client_id=cp.client_id WHERE cp.user_id=? AND c.status='active'");
+            $hasActiveClient->execute([$userId]);
+            if ((int)$hasActiveLawyer->fetchColumn() > 0 || (int)$hasActiveClient->fetchColumn() > 0) {
+                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ ผู้ใช้มีคดีที่กำลังดำเนินการอยู่']); exit; }
+            } else {
+                try {
+                    $pdo->beginTransaction();
+                    $pdo->prepare("DELETE FROM lawyer_profiles WHERE user_id=?")->execute([$userId]);
+                    $pdo->prepare("DELETE FROM client_profiles WHERE user_id=?")->execute([$userId]);
+                    $pdo->prepare("DELETE FROM users WHERE user_id=?")->execute([$userId]);
+                    $pdo->commit();
+                    if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบบัญชีผู้ใช้เรียบร้อยแล้ว']); exit; }
+                } catch (Exception $e) {
+                    $pdo->rollBack();
+                    if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ อาจมีข้อมูลที่เชื่อมโยงอยู่']); exit; }
+                }
+            }
+        }
+    }
+
     header('Location: /pages/users.php'); exit;
 }
 
@@ -186,15 +216,19 @@ $totalInactive = count($allUsers) - $totalActive;
             <td style="white-space:nowrap;">
                 <?php if (!$isMe): ?>
                 <button class="action-btn btn-reset"
-                    onclick="openResetModal(<?= $u['user_id'] ?>, <?= json_encode($u['full_name']) ?>, <?= json_encode($u['username'] ?? '') ?>)">
+                    onclick='openResetModal(<?= $u["user_id"] ?>, <?= json_encode($u["full_name"], JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($u["username"] ?? "", JSON_UNESCAPED_UNICODE) ?>)'>
                     🔑 Reset PW
                 </button>
                 <?php if ($isActive): ?>
                 <button class="action-btn btn-suspend"
-                    onclick="toggleStatus(<?= $u['user_id'] ?>, 'inactive', <?= json_encode($u['full_name']) ?>)">🔒 ระงับ</button>
+                    onclick='toggleStatus(<?= $u["user_id"] ?>, "inactive", <?= json_encode($u["full_name"], JSON_UNESCAPED_UNICODE) ?>)'>🔒 ระงับ</button>
                 <?php else: ?>
                 <button class="action-btn btn-activate"
-                    onclick="toggleStatus(<?= $u['user_id'] ?>, 'active', <?= json_encode($u['full_name']) ?>)">✅ เปิดใช้</button>
+                    onclick='toggleStatus(<?= $u["user_id"] ?>, "active", <?= json_encode($u["full_name"], JSON_UNESCAPED_UNICODE) ?>)'>✅ เปิดใช้</button>
+                <?php endif; ?>
+                <?php if ($u['role_name'] !== 'admin'): ?>
+                <button class="action-btn" style="background:#fee2e2;color:#991b1b;"
+                    onclick='deleteUser(<?= $u["user_id"] ?>, <?= json_encode($u["full_name"], JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($u["role_name"], JSON_UNESCAPED_UNICODE) ?>)'>🗑️ ลบ</button>
                 <?php endif; ?>
                 <?php else: ?>
                 <span style="font-size:.75rem;color:#94a3b8;">—</span>
@@ -333,6 +367,35 @@ async function toggleStatus(uid, status, name) {
             location.reload();
         } else {
             Swal.fire({ icon:'error', title:'ผิดพลาด', text:data.msg, confirmButtonColor:'#1a3a5c' });
+        }
+    } catch { Swal.fire({ icon:'error', title:'ผิดพลาด', text:'เชื่อมต่อไม่ได้', confirmButtonColor:'#1a3a5c' }); }
+}
+
+async function deleteUser(uid, name, role) {
+    const roleTH = { lawyer: 'ทนายความ', client: 'ลูกความ' };
+    const r = await Swal.fire({
+        icon: 'warning',
+        title: `ลบ${roleTH[role] || 'ผู้ใช้'}?`,
+        html: `ลบบัญชี <b>"${name}"</b> ออกจากระบบ?<br><small style="color:#dc2626">จะลบได้เฉพาะผู้ใช้ที่ไม่มีคดี active อยู่</small>`,
+        showCancelButton: true,
+        confirmButtonText: '🗑️ ลบ',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#dc2626',
+        cancelButtonColor: '#94a3b8',
+    });
+    if (!r.isConfirmed) return;
+    const fd = new FormData();
+    fd.append('csrf_token', document.querySelector('input[name="csrf_token"]').value);
+    fd.append('action', 'delete_user');
+    fd.append('user_id', uid);
+    try {
+        const res  = await fetch(location.pathname, { method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body:fd });
+        const data = await res.json();
+        if (data.ok) {
+            await Swal.fire({ icon:'success', title:'สำเร็จ!', text:data.msg, confirmButtonColor:'#1a3a5c', timer:1800, timerProgressBar:true, showConfirmButton:false });
+            location.reload();
+        } else {
+            Swal.fire({ icon:'error', title:'ลบไม่ได้', text:data.msg, confirmButtonColor:'#1a3a5c' });
         }
     } catch { Swal.fire({ icon:'error', title:'ผิดพลาด', text:'เชื่อมต่อไม่ได้', confirmButtonColor:'#1a3a5c' }); }
 }

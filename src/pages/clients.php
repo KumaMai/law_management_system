@@ -128,39 +128,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    header('Location: /pages/clients.php'); exit;
-}
-
-// ---- ลบบัญชีลูกความ (admin) ----
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_client') {
-    csrf_verify();
-    $isAjax   = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
-    $clientId = (int)$_POST['client_id'];
-
-    $owner = $pdo->prepare("SELECT cp.user_id FROM client_profiles cp JOIN users u ON cp.user_id=u.user_id WHERE cp.client_id=? AND u.office_id=?");
-    $owner->execute([$clientId, $officeId]);
-    $ownerRow = $owner->fetch();
-
-    if (!$ownerRow) {
-        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบลูกความหรือไม่มีสิทธิ์']); exit; }
-    } else {
-        $hasActive = $pdo->prepare("SELECT COUNT(*) FROM case_requests cr JOIN contracts c ON c.request_id=cr.request_id WHERE cr.client_id=? AND c.status='active'");
-        $hasActive->execute([$clientId]);
-        if ((int)$hasActive->fetchColumn() > 0) {
-            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ ลูกความมีคดีที่กำลังดำเนินการอยู่']); exit; }
+    // ---- ลบบัญชีลูกความ ----
+    if ($action === 'delete_client') {
+        $clientId = (int)$_POST['client_id'];
+        $owner = $pdo->prepare("SELECT cp.user_id FROM client_profiles cp JOIN users u ON cp.user_id=u.user_id WHERE cp.client_id=? AND u.office_id=?");
+        $owner->execute([$clientId, $officeId]);
+        $ownerRow = $owner->fetch();
+        if (!$ownerRow) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบลูกความหรือไม่มีสิทธิ์']); exit; }
         } else {
-            try {
-                $pdo->beginTransaction();
-                $pdo->prepare("DELETE FROM client_profiles WHERE client_id=?")->execute([$clientId]);
-                $pdo->prepare("DELETE FROM users WHERE user_id=?")->execute([$ownerRow['user_id']]);
-                $pdo->commit();
-                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบบัญชีลูกความเรียบร้อยแล้ว']); exit; }
-            } catch (Exception $e) {
-                $pdo->rollBack();
-                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ อาจมีข้อมูลที่เชื่อมโยงอยู่']); exit; }
+            $hasActive = $pdo->prepare("SELECT COUNT(*) FROM case_requests cr JOIN contracts c ON c.request_id=cr.request_id WHERE cr.client_id=? AND c.status='active'");
+            $hasActive->execute([$clientId]);
+            if ((int)$hasActive->fetchColumn() > 0) {
+                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ ลูกความมีคดีที่กำลังดำเนินการอยู่']); exit; }
+            } else {
+                try {
+                    $pdo->beginTransaction();
+                    $pdo->prepare("DELETE FROM client_profiles WHERE client_id=?")->execute([$clientId]);
+                    $pdo->prepare("DELETE FROM users WHERE user_id=?")->execute([$ownerRow['user_id']]);
+                    $pdo->commit();
+                    if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบบัญชีลูกความเรียบร้อยแล้ว']); exit; }
+                } catch (Exception $e) {
+                    $pdo->rollBack();
+                    if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ อาจมีข้อมูลที่เชื่อมโยงอยู่']); exit; }
+                }
             }
         }
     }
+
     header('Location: /pages/clients.php'); exit;
 }
 
@@ -228,11 +223,11 @@ include '../includes/header.php';
                     "citizen_id"=>$c["citizen_id"]??""  ,"phone"=>$c["phone"]??""  ,"address"=>$c["address"]??""
                 ], JSON_UNESCAPED_UNICODE) ?>)'>✏️ แก้ไข</button>
                 <?php if ($isActive): ?>
-                <button class="action-btn btn-suspend" onclick="toggleStatus(<?= $c['client_id'] ?>, 'inactive', <?= json_encode($c['fname'].' '.$c['lname']) ?>)">🔒 ระงับ</button>
+                <button class="action-btn btn-suspend" onclick='toggleStatus(<?= $c["client_id"] ?>, "inactive", <?= json_encode($c["fname"]." ".$c["lname"], JSON_UNESCAPED_UNICODE) ?>)'>🔒 ระงับ</button>
                 <?php else: ?>
-                <button class="action-btn btn-activate" onclick="toggleStatus(<?= $c['client_id'] ?>, 'active', <?= json_encode($c['fname'].' '.$c['lname']) ?>)">✅ เปิดใช้</button>
+                <button class="action-btn btn-activate" onclick='toggleStatus(<?= $c["client_id"] ?>, "active", <?= json_encode($c["fname"]." ".$c["lname"], JSON_UNESCAPED_UNICODE) ?>)'>✅ เปิดใช้</button>
                 <?php endif; ?>
-                <button class="action-btn" style="background:#fee2e2;color:#991b1b;" onclick="deleteClient(<?= $c['client_id'] ?>, <?= json_encode($c['fname'].' '.$c['lname']) ?>)">🗑️ ลบ</button>
+                <button class="action-btn" style="background:#fee2e2;color:#991b1b;" onclick='deleteClient(<?= $c["client_id"] ?>, <?= json_encode($c["fname"]." ".$c["lname"], JSON_UNESCAPED_UNICODE) ?>)'>🗑️ ลบ</button>
             </td>
         </tr>
         <?php endforeach; ?>
@@ -335,8 +330,12 @@ async function handleSubmit(fid,bid){
     catch{Swal.fire({icon:'error',title:'ผิดพลาด',text:'เชื่อมต่อไม่ได้',confirmButtonColor:'#1a3a5c'});}
     finally{btn.disabled=false;btn.textContent=orig;}
 }
-document.getElementById('addForm').addEventListener('submit',e=>{e.preventDefault();handleSubmit('addForm','addBtn');});
-document.getElementById('editForm').addEventListener('submit',e=>{e.preventDefault();handleSubmit('editForm','editBtn');});
+document.addEventListener('DOMContentLoaded', function() {
+    var af = document.getElementById('addForm');
+    var ef = document.getElementById('editForm');
+    if (af) af.addEventListener('submit', e => { e.preventDefault(); handleSubmit('addForm', 'addBtn'); });
+    if (ef) ef.addEventListener('submit', e => { e.preventDefault(); handleSubmit('editForm', 'editBtn'); });
+});
 
 async function deleteClient(id, name) {
     const r = await Swal.fire({

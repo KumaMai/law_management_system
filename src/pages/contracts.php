@@ -613,7 +613,7 @@ include '../includes/header.php';
             </button>
             <?php if ($c['status'] === 'active'): ?>
             <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;cursor:pointer;font-weight:700;"
-                onclick="openForceTerminateModal(<?= $c['contract_id'] ?>, <?= json_encode($c['client_name'].' / '.$c['lawyer_name']) ?>)">
+                onclick='openForceTerminateModal(<?= $c["contract_id"] ?>, <?= json_encode($c["client_name"]." / ".$c["lawyer_name"], JSON_UNESCAPED_UNICODE) ?>)'>
                 🛑 Force Terminate
             </button>
             <?php endif; ?>

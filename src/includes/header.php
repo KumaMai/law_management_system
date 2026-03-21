@@ -121,8 +121,9 @@ $_sb_cur = basename($_SERVER['PHP_SELF']);
         <div class="sb-section">คดีความ</div>
         <a href="/pages/case_requests.php"     class="sb-link <?= $_sb_cur==='case_requests.php'?'active':'' ?>"><span class="sb-link-icon">📋</span><span class="sb-link-text sb-hide-collapsed">คำขอว่าจ้าง</span></a>
         <a href="/pages/contracts.php"         class="sb-link <?= $_sb_cur==='contracts.php'?'active':'' ?>"><span class="sb-link-icon">📄</span><span class="sb-link-text sb-hide-collapsed">สัญญา</span></a>
-        <a href="/pages/filings.php"           class="sb-link <?= $_sb_cur==='filings.php'?'active':'' ?>"><span class="sb-link-icon">⚖️</span><span class="sb-link-text sb-hide-collapsed">การยื่นฟ้อง</span></a>
+        <a href="/pages/filings.php"           class="sb-link <?= $_sb_cur==='filings.php'?'active':'' ?>"><span class="sb-link-icon">⚖️</span><span class="sb-link-text sb-hide-collapsed">นัดยื่นฟ้อง</span></a>
         <a href="/pages/hearings.php"          class="sb-link <?= $_sb_cur==='hearings.php'?'active':'' ?>"><span class="sb-link-icon">📅</span><span class="sb-link-text sb-hide-collapsed">นัดขึ้นศาล</span></a>
+        <a href="/pages/verdict_appointments.php" class="sb-link <?= $_sb_cur==='verdict_appointments.php'?'active':'' ?>"><span class="sb-link-icon">🗓️</span><span class="sb-link-text sb-hide-collapsed">นัดวันพิพากษา</span></a>
         <a href="/pages/verdicts.php"          class="sb-link <?= $_sb_cur==='verdicts.php'?'active':'' ?>"><span class="sb-link-icon">🔨</span><span class="sb-link-text sb-hide-collapsed">คำพิพากษา</span></a>
         <div class="sb-section">เอกสาร & การเงิน</div>
         <a href="/pages/case_summary.php"      class="sb-link <?= $_sb_cur==='case_summary.php'?'active':'' ?>"><span class="sb-link-icon">📂</span><span class="sb-link-text sb-hide-collapsed">สำนวนคดี</span></a>
@@ -138,8 +139,9 @@ $_sb_cur = basename($_SERVER['PHP_SELF']);
         <div class="sb-section">คดีความ</div>
         <a href="/pages/case_requests.php"     class="sb-link <?= $_sb_cur==='case_requests.php'?'active':'' ?>"><span class="sb-link-icon">📋</span><span class="sb-link-text sb-hide-collapsed">คำขอว่าจ้าง</span></a>
         <a href="/pages/contracts.php"         class="sb-link <?= $_sb_cur==='contracts.php'?'active':'' ?>"><span class="sb-link-icon">📄</span><span class="sb-link-text sb-hide-collapsed">สัญญาของฉัน</span></a>
-        <a href="/pages/filings.php"           class="sb-link <?= $_sb_cur==='filings.php'?'active':'' ?>"><span class="sb-link-icon">⚖️</span><span class="sb-link-text sb-hide-collapsed">การยื่นฟ้อง</span></a>
+        <a href="/pages/filings.php"           class="sb-link <?= $_sb_cur==='filings.php'?'active':'' ?>"><span class="sb-link-icon">⚖️</span><span class="sb-link-text sb-hide-collapsed">นัดยื่นฟ้อง</span></a>
         <a href="/pages/hearings.php"          class="sb-link <?= $_sb_cur==='hearings.php'?'active':'' ?>"><span class="sb-link-icon">📅</span><span class="sb-link-text sb-hide-collapsed">นัดขึ้นศาล</span></a>
+        <a href="/pages/verdict_appointments.php" class="sb-link <?= $_sb_cur==='verdict_appointments.php'?'active':'' ?>"><span class="sb-link-icon">🗓️</span><span class="sb-link-text sb-hide-collapsed">นัดวันพิพากษา</span></a>
         <a href="/pages/verdicts.php"          class="sb-link <?= $_sb_cur==='verdicts.php'?'active':'' ?>"><span class="sb-link-icon">🔨</span><span class="sb-link-text sb-hide-collapsed">คำพิพากษา</span></a>
         <div class="sb-section">เอกสาร & การเงิน</div>
         <a href="/pages/case_summary.php"      class="sb-link <?= $_sb_cur==='case_summary.php'?'active':'' ?>"><span class="sb-link-icon">📂</span><span class="sb-link-text sb-hide-collapsed">สำนวนคดี</span></a>

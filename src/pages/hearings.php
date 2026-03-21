@@ -115,10 +115,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
         } else {
             $pdo->prepare("
                 INSERT INTO court_hearings
-                    (filing_id, hearing_date, hearing_time, court_room, hearing_round, status, notes)
-                VALUES (?, ?, ?, ?, ?, 'scheduled', ?)
+                    (filing_id, case_number, hearing_date, hearing_time, court_room, hearing_round, status, notes)
+                VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?)
             ")->execute([
                 (int)$_POST['filing_id'],
+                trim($_POST['case_number'] ?? '') ?: null,
                 $_POST['hearing_date'],
                 $_POST['hearing_time'] ?: null,
                 trim($_POST['court_room']),
@@ -140,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
 // Fetch hearings
 $where = $filingId ? "AND ch.filing_id = " . (int)$filingId : '';
 $stmt  = $pdo->prepare("
-    SELECT ch.*, f.case_number,
+    SELECT ch.*,
            CONCAT(cp.fname,' ',cp.lname) AS client_name,
            ct.court_name, cr.office_id
     FROM court_hearings ch
@@ -157,7 +158,7 @@ $hearings = $stmt->fetchAll();
 
 // Filings dropdown
 $filingsStmt = $pdo->prepare("
-    SELECT f.filing_id, f.case_number, f.charge, f.filing_date,
+    SELECT f.filing_id, f.charge, f.scheduled_filing_date,
            CONCAT(cp.fname,' ',cp.lname) AS client_name,
            CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
            lp.specialization,
@@ -180,13 +181,13 @@ $filings = $filingsStmt->fetchAll();
 $filingMap = [];
 foreach ($filings as $fi) {
     $filingMap[$fi['filing_id']] = [
-        'case_number' => $fi['case_number'] ?? '—',
+        'scheduled_filing_date' => $fi['scheduled_filing_date'] ?? '—',
         'client'      => $fi['client_name'],
         'lawyer'      => $fi['lawyer_name'],
         'spec'        => $fi['specialization'] ?? '',
         'court'       => $fi['court_name'] ?? '—',
         'charge'      => $fi['charge'] ?? '—',
-        'filing_date' => $fi['filing_date'] ?? '—',
+        'filing_date' => $fi['scheduled_filing_date'] ?? '—',
         'detail'      => mb_substr($fi['case_detail'] ?? '—', 0, 120) . (mb_strlen($fi['case_detail'] ?? '') > 120 ? '...' : ''),
         'fee'         => $fi['fee_amount'] ? number_format($fi['fee_amount'], 2) : '—',
     ];
@@ -347,7 +348,7 @@ setInterval(updateCountdowns, 1000);
                 <td style="white-space:nowrap;">
                     <?php if ($h['status'] === 'scheduled'): ?>
                     <button class="btn btn-sm" style="background:#1a3a5c;color:#fff;margin-bottom:2px;"
-                            onclick="openStatusModal(<?= $h['hearing_id'] ?>,<?= htmlspecialchars(json_encode($h['case_number'] ?? ''), ENT_QUOTES) ?>,<?= htmlspecialchars(json_encode($h['client_name']), ENT_QUOTES) ?>,<?= $h['hearing_round'] ?>)">
+                            onclick='openStatusModal(<?= $h["hearing_id"] ?>, <?= json_encode($h["case_number"] ?? "", JSON_UNESCAPED_UNICODE) ?>, <?= json_encode($h["client_name"], JSON_UNESCAPED_UNICODE) ?>, <?= $h["hearing_round"] ?>)'>
                         📋 อัปเดตสถานะ
                     </button>
                     <?php endif; ?>
@@ -387,7 +388,7 @@ setInterval(updateCountdowns, 1000);
                         <option value="">-- เลือกคดี --</option>
                         <?php foreach ($filings as $f): ?>
                         <option value="<?= $f['filing_id'] ?>" <?= $filingId == $f['filing_id'] ? 'selected':'' ?>>
-                            <?= htmlspecialchars($f['case_number'] ?? '#'.$f['filing_id']) ?>
+                            #<?= $f['filing_id'] ?>
                             — <?= htmlspecialchars($f['client_name']) ?>
                             <?php if (!empty($f['charge'])): ?>(<?= htmlspecialchars(mb_substr($f['charge'],0,25)) ?>)<?php endif; ?>
                             [<?= htmlspecialchars($f['court_name'] ?? '') ?>]
@@ -399,7 +400,7 @@ setInterval(updateCountdowns, 1000);
                     <div class="filing-info-card" id="modal-filing-info-card">
                         <div style="font-weight:700;color:#1a3a5c;margin-bottom:10px;">📋 รายละเอียดคดีที่เลือก</div>
                         <div class="filing-info-grid">
-                            <div class="fi-cell"><div class="lbl">📁 เลขคดี</div><strong id="fi-case-no"></strong></div>
+                            <div class="fi-cell"><div class="lbl">📅 วันนัดยื่นฟ้อง</div><strong id="fi-case-no"></strong></div>
                             <div class="fi-cell"><div class="lbl">👤 ลูกความ</div><strong id="fi-client"></strong></div>
                             <div class="fi-cell"><div class="lbl">👨‍⚖️ ทนาย</div><strong id="fi-lawyer"></strong></div>
                             <div class="fi-cell"><div class="lbl">🏛️ ศาล</div><span id="fi-court"></span></div>
@@ -411,6 +412,12 @@ setInterval(updateCountdowns, 1000);
                     </div>
                 </div>
 
+                <div class="form-group">
+                    <label>เลขคดี <span style="color:red">*</span>
+                        <span style="font-weight:400;color:#94a3b8;font-size:.75rem;">(ได้รับหลังยื่นฟ้องจริง)</span>
+                    </label>
+                    <input type="text" name="case_number" id="modal-case-number" placeholder="เช่น 123/2568" required>
+                </div>
                 <div class="form-group">
                     <label>วันนัดขึ้นศาล <span style="color:red">*</span></label>
                     <input type="date" name="hearing_date" required>
@@ -541,7 +548,7 @@ function showFilingInfo(filingId) {
     const card = document.getElementById('modal-filing-info-card');
     if (!filingId || !filingData[filingId]) { card.classList.remove('show'); return; }
     const d = filingData[filingId];
-    document.getElementById('fi-case-no').textContent     = d.case_number;
+    document.getElementById('fi-case-no').textContent     = d.scheduled_filing_date ? 'นัด ' + d.scheduled_filing_date : '(ยังไม่ได้นัด)';
     document.getElementById('fi-client').textContent      = d.client;
     document.getElementById('fi-lawyer').textContent      = d.lawyer + (d.spec ? ' (' + d.spec + ')' : '');
     document.getElementById('fi-court').textContent       = d.court;

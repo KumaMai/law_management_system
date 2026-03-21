@@ -32,7 +32,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'gener
                con.contract_id, con.contract_date, con.fee_amount,
                con.contract_review_status, con.payment_status,
                con.lawyer_note, con.client_response, con.proposed_fee,
-               f.filing_id, f.case_number, f.charge, f.filing_date,
+               f.filing_id, f.charge, f.scheduled_filing_date,
+               (SELECT MAX(ch.case_number) FROM court_hearings ch WHERE ch.filing_id = f.filing_id) AS case_number,
                ct.court_name,
                v.result AS verdict_result, v.verdict_date
         FROM case_requests cr
@@ -243,8 +244,8 @@ table.htable tr:nth-child(even) td{background:#f7f9fb;}
   <table class="info">
     <tr><td class="label">หมายเลขคดีที่ได้รับ</td>
         <td><strong><?= htmlspecialchars($case['case_number'] ?? '-') ?></strong></td>
-        <td class="label">วันที่ยื่นฟ้อง</td>
-        <td><?= $case['filing_date'] ? date('d/m/Y', strtotime($case['filing_date'])) : '-' ?></td></tr>
+        <td class="label">วันนัดยื่นฟ้อง</td>
+        <td><?= $case['scheduled_filing_date'] ? date('d/m/Y', strtotime($case['scheduled_filing_date'])) : '-' ?></td></tr>
     <tr><td class="label">ศาลที่ยื่นฟ้อง</td>
         <td><?= htmlspecialchars($case['court_name'] ?? '-') ?></td>
         <td class="label">ข้อหา</td>
@@ -531,7 +532,8 @@ $casesStmt = $pdo->prepare("
     SELECT cr.request_id, cr.detail, cr.status, cr.created_at,
            CONCAT(cp.fname,' ',cp.lname) AS client_name,
            CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
-           con.contract_id, f.case_number, f.filing_id,
+           con.contract_id, f.filing_id,
+           (SELECT MAX(ch.case_number) FROM court_hearings ch WHERE ch.filing_id = f.filing_id) AS case_number,
            v.verdict_id
     FROM case_requests cr
     JOIN client_profiles cp ON cr.client_id = cp.client_id
@@ -568,7 +570,8 @@ if ($selectedId) {
                CONCAT(cp.fname,' ',cp.lname) AS client_name, cp.phone AS client_phone,
                CONCAT(lp.fname,' ',lp.lname) AS lawyer_name, lp.specialization, lp.phone AS lawyer_phone,
                con.contract_id, con.contract_date, con.fee_amount, con.contract_review_status, con.payment_status,
-               f.filing_id, f.case_number, f.charge, f.filing_date,
+               f.filing_id, f.charge, f.scheduled_filing_date,
+               (SELECT MAX(ch.case_number) FROM court_hearings ch WHERE ch.filing_id = f.filing_id) AS case_number,
                ct.court_name,
                v.result AS verdict_result, v.verdict_date,
                (SELECT COUNT(*) FROM court_hearings ch WHERE ch.filing_id = f.filing_id) AS total_hearings,
@@ -718,7 +721,7 @@ include '../includes/header.php';
           <span class="lbl">📁 หมายเลขคดี</span><span><strong><?= htmlspecialchars($previewCase['case_number'] ?? '—') ?></strong></span>
           <span class="lbl">🏛️ ศาล</span><span><?= htmlspecialchars($previewCase['court_name'] ?? '—') ?></span>
           <span class="lbl">⚖️ ข้อหา</span><span><?= htmlspecialchars($previewCase['charge'] ?? '—') ?></span>
-          <span class="lbl">📅 วันยื่นฟ้อง</span><span><?= $previewCase['filing_date'] ? date('d/m/Y', strtotime($previewCase['filing_date'])) : '—' ?></span>
+          <span class="lbl">📅 วันนัดยื่นฟ้อง</span><span><?= $previewCase['scheduled_filing_date'] ? date('d/m/Y', strtotime($previewCase['scheduled_filing_date'])) : '—' ?></span>
         </div>
         <?php else: ?><span style="color:#aaa;font-size:0.85rem;">ยังไม่มีการยื่นฟ้อง</span><?php endif; ?>
       </div>

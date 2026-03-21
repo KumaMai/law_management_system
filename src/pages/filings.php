@@ -49,19 +49,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
     }
 
     $pdo->prepare("
-        INSERT INTO filings (contract_id, court_id, case_number, charge, filing_date)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO filings (contract_id, court_id, charge, scheduled_filing_date)
+        VALUES (?, ?, ?, ?)
     ")->execute([
         $newContract,
         $courtId,
-        trim($_POST['case_number']),
         trim($_POST['charge']),
-        $_POST['filing_date'],
+        $_POST['scheduled_filing_date'] ?: null,
     ]);
 
     if ($isAjax) {
         header('Content-Type: application/json');
-        echo json_encode(['ok' => true, 'msg' => 'เพิ่มการยื่นฟ้องสำเร็จ']);
+        echo json_encode(['ok' => true, 'msg' => 'เพิ่มนัดยื่นฟ้องสำเร็จ']);
         exit;
     }
     header('Location: /pages/filings.php');
@@ -72,9 +71,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
     if ($action === 'edit') {
         $filingId   = (int)$_POST['filing_id'];
         $courtInput = trim($_POST['court_input'] ?? '');
-        $caseNumber = trim($_POST['case_number'] ?? '');
         $charge     = trim($_POST['charge'] ?? '');
-        $filingDate = $_POST['filing_date'] ?? '';
+        $filingDate = $_POST['scheduled_filing_date'] ?? '';
 
         // ตรวจ ownership — filing ต้องอยู่ใน office เดียวกัน
         $chk = $pdo->prepare("
@@ -87,15 +85,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
         if (!$chk->fetch()) {
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบข้อมูลหรือไม่มีสิทธิ์']); exit; }
             header('Location: /pages/filings.php'); exit;
-        }
-
-        // ตรวจ case_number ซ้ำ (ยกเว้นตัวเอง)
-        if ($caseNumber) {
-            $dupCase = $pdo->prepare("SELECT filing_id FROM filings WHERE case_number = ? AND filing_id != ?");
-            $dupCase->execute([$caseNumber, $filingId]);
-            if ($dupCase->fetch()) {
-                if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'เลขคดีนี้มีอยู่ในระบบแล้ว']); exit; }
-            }
         }
 
         // หา/สร้าง court
@@ -113,11 +102,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
         }
 
         $pdo->prepare("
-            UPDATE filings SET court_id=?, case_number=?, charge=?, filing_date=?
+            UPDATE filings SET court_id=?, charge=?, scheduled_filing_date=?
             WHERE filing_id=?
-        ")->execute([$courtId, $caseNumber ?: null, $charge ?: null, $filingDate ?: null, $filingId]);
+        ")->execute([$courtId, $charge ?: null, $filingDate ?: null, $filingId]);
 
-        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'แก้ไขข้อมูลการยื่นฟ้องเรียบร้อยแล้ว']); exit; }
+        if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'แก้ไขข้อมูลนัดยื่นฟ้องเรียบร้อยแล้ว']); exit; }
         header('Location: /pages/filings.php'); exit;
     }
 
@@ -156,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
 // Fetch filings
 $where = $contractId ? "AND f.contract_id = " . (int)$contractId : '';
 $stmt  = $pdo->prepare("
-    SELECT f.*,
+    SELECT f.filing_id, f.contract_id, f.court_id, f.charge, f.scheduled_filing_date, f.created_at,
            COALESCE(c.court_name, '—') AS court_display,
            CONCAT(cp.fname,' ',cp.lname) AS client_name,
            CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
@@ -219,7 +208,7 @@ $statusLabel = [
     'finalized'             => '🔒 ยืนยันแล้ว',
 ];
 
-$pageTitle = 'การยื่นฟ้องคดี';
+$pageTitle = 'นัดยื่นฟ้องคดี';
 include '../includes/header.php';
 ?>
 
@@ -259,9 +248,9 @@ include '../includes/header.php';
 <!-- Header + ปุ่ม -->
 <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <h2 style="margin:0;">🏛️ รายการยื่นฟ้อง</h2>
+        <h2 style="margin:0;">🏛️ นัดวันยื่นฟ้อง</h2>
         <?php if (in_array($role, ['admin','lawyer'])): ?>
-        <button onclick="openFilingModal()" class="btn btn-primary">➕ เพิ่มการยื่นฟ้อง</button>
+        <button onclick="openFilingModal()" class="btn btn-primary">➕ เพิ่มนัดยื่นฟ้อง</button>
         <?php endif; ?>
     </div>
 
@@ -273,8 +262,8 @@ include '../includes/header.php';
         <thead>
             <tr>
                 <th>#</th><th>ลูกความ</th><th>ทนาย</th>
-                <th>ศาล</th><th>เลขคดี</th><th>ข้อหา</th>
-                <th>วันที่ยื่นฟ้อง</th><th>จัดการ</th>
+                <th>ศาล</th><th>ข้อหา</th>
+                <th>วันนัดยื่นฟ้อง</th><th>จัดการ</th>
             </tr>
         </thead>
         <tbody>
@@ -284,9 +273,8 @@ include '../includes/header.php';
                 <td><?= htmlspecialchars($f['client_name']) ?></td>
                 <td><?= htmlspecialchars($f['lawyer_name']) ?></td>
                 <td><?= htmlspecialchars($f['court_display']) ?></td>
-                <td><?= htmlspecialchars($f['case_number'] ?? '—') ?></td>
                 <td><?= htmlspecialchars($f['charge'] ?? '—') ?></td>
-                <td><?= $f['filing_date'] ?? '—' ?></td>
+                <td><?= $f['scheduled_filing_date'] ?? '—' ?></td>
                 <td>
                     <a href="/pages/hearings.php?filing_id=<?= $f['filing_id'] ?>"
                        class="btn btn-primary btn-sm">📅 นัดขึ้นศาล</a>
@@ -295,14 +283,13 @@ include '../includes/header.php';
                         onclick='openEditFilingModal(<?= json_encode([
                             "filing_id"   => (int)$f["filing_id"],
                             "court_name"  => $f["court_display"],
-                            "case_number" => $f["case_number"] ?? "",
                             "charge"      => $f["charge"] ?? "",
-                            "filing_date" => $f["filing_date"] ?? "",
+                            "filing_date" => $f["scheduled_filing_date"] ?? "",
                         ], JSON_UNESCAPED_UNICODE) ?>)'>✏️ แก้ไข</button>
                     <?php endif; ?>
                     <?php if ($role === 'admin'): ?>
                     <button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;border:none;cursor:pointer;font-weight:700;"
-                        onclick="deleteFiling(<?= $f['filing_id'] ?>, <?= json_encode($f['case_number'] ?? '#'.$f['filing_id']) ?>)">🗑️ ลบ</button>
+                        onclick='deleteFiling(<?= $f["filing_id"] ?>, <?= json_encode("#".$f["filing_id"]." (".htmlspecialchars($f["charge"]??"ไม่ระบุข้อหา").")", JSON_UNESCAPED_UNICODE) ?>)'>🗑️ ลบ</button>
                     <?php endif; ?>
                 </td>
             </tr>
@@ -318,7 +305,7 @@ include '../includes/header.php';
 <div id="filingModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;padding:16px;">
     <div style="background:#fff;border-radius:16px;padding:28px 32px;width:100%;max-width:680px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-            <h3 style="margin:0;color:#1a3a5c;">➕ เพิ่มการยื่นฟ้องใหม่</h3>
+            <h3 style="margin:0;color:#1a3a5c;">➕ เพิ่มนัดยื่นฟ้องใหม่</h3>
             <button onclick="closeFilingModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#94a3b8;line-height:1;">✕</button>
         </div>
         <form id="filingForm">
@@ -373,16 +360,13 @@ include '../includes/header.php';
                 </div>
 
                 <div class="form-group">
-                    <label>เลขคดี <span style="color:red">*</span></label>
-                    <input type="text" name="case_number" placeholder="เช่น 123/2568" required>
-                </div>
-                <div class="form-group">
                     <label>ข้อหา</label>
                     <input type="text" name="charge" placeholder="ระบุข้อหา">
                 </div>
                 <div class="form-group">
-                    <label>วันที่ยื่นฟ้อง <span style="color:red">*</span></label>
-                    <input type="date" name="filing_date" required>
+                    <label>วันนัดยื่นฟ้อง</label>
+                    <input type="date" name="scheduled_filing_date">
+                    <small style="color:#94a3b8;font-size:.74rem;">วันที่นัดหมายเพื่อยื่นเอกสาร (เลขคดีจะได้รับหลังยื่นจริง)</small>
                 </div>
             </div>
 
@@ -548,7 +532,6 @@ window.addEventListener('DOMContentLoaded', () => {
 function openEditFilingModal(d) {
     document.getElementById('ef-filing-id').value   = d.filing_id;
     document.getElementById('ef-court-input').value = d.court_name;
-    document.getElementById('ef-case-number').value = d.case_number;
     document.getElementById('ef-charge').value      = d.charge;
     document.getElementById('ef-filing-date').value = d.filing_date;
     updateEditBadge(d.court_name);
@@ -657,16 +640,12 @@ async function deleteFiling(id, caseNum) {
                     <span class="court-match-badge" id="ef-court-badge"></span>
                 </div>
                 <div class="form-group">
-                    <label>เลขคดี</label>
-                    <input type="text" name="case_number" id="ef-case-number" placeholder="เช่น 123/2568">
-                </div>
-                <div class="form-group">
                     <label>ข้อหา</label>
                     <input type="text" name="charge" id="ef-charge">
                 </div>
                 <div class="form-group">
-                    <label>วันที่ยื่นฟ้อง</label>
-                    <input type="date" name="filing_date" id="ef-filing-date">
+                    <label>วันนัดยื่นฟ้อง</label>
+                    <input type="date" name="scheduled_filing_date" id="ef-filing-date">
                 </div>
             </div>
             <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">

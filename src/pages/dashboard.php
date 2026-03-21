@@ -456,8 +456,7 @@ $upcomingHearingsDash = [];
 if ($role === 'admin') {
     try {
         $hq = $pdo->prepare("
-            SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.hearing_round,
-                   f.case_number, ct.court_name,
+            SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.hearing_round, ch.case_number, ct.court_name,
                    CONCAT(cp.fname,' ',cp.lname) AS client_name,
                    CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
                    DATEDIFF(ch.hearing_date, CURDATE()) AS days_left
@@ -478,8 +477,7 @@ if ($role === 'admin') {
 } elseif ($role === 'lawyer' && $lawyerIdDash) {
     try {
         $hq = $pdo->prepare("
-            SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.hearing_round,
-                   f.case_number, ct.court_name,
+            SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.hearing_round, ch.case_number, ct.court_name,
                    CONCAT(cp.fname,' ',cp.lname) AS client_name,
                    DATEDIFF(ch.hearing_date, CURDATE()) AS days_left
             FROM court_hearings ch
@@ -498,8 +496,7 @@ if ($role === 'admin') {
 } elseif ($role === 'client' && $clientId) {
     try {
         $hq = $pdo->prepare("
-            SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.hearing_round,
-                   f.case_number, ct.court_name,
+            SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.hearing_round, ch.case_number, ct.court_name,
                    CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
                    DATEDIFF(ch.hearing_date, CURDATE()) AS days_left
             FROM court_hearings ch
@@ -572,7 +569,7 @@ if ($role === 'client' && $clientId) {
             SELECT c.contract_id, c.fee_amount, c.payment_status,
                    COALESCE((SELECT SUM(amount) FROM payments WHERE contract_id=c.contract_id AND status='confirmed'),0) AS total_paid,
                    CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
-                   f.case_number
+                   (SELECT MAX(ch.case_number) FROM court_hearings ch JOIN filings f2 ON ch.filing_id=f2.filing_id WHERE f2.contract_id=c.contract_id) AS case_number
             FROM contracts c
             JOIN case_requests cr ON c.request_id = cr.request_id
             JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id

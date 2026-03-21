@@ -134,21 +134,20 @@ CREATE TABLE `courts` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `filings` (
-  `filing_id`   int          NOT NULL AUTO_INCREMENT,
-  `contract_id` int          NOT NULL,
-  `court_id`    int          NOT NULL,
-  `case_number` varchar(50)  DEFAULT NULL,
-  `charge`      varchar(255) DEFAULT NULL,
-  `filing_date` date         DEFAULT NULL,
-  `created_at`  timestamp    DEFAULT CURRENT_TIMESTAMP,
+  `filing_id`              int          NOT NULL AUTO_INCREMENT,
+  `contract_id`            int          NOT NULL,
+  `court_id`               int          NOT NULL,
+  `charge`                 varchar(255) DEFAULT NULL,
+  `scheduled_filing_date`  date         DEFAULT NULL COMMENT 'วันนัดยื่นฟ้อง',
+  `created_at`             timestamp    DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`filing_id`),
-  UNIQUE KEY `uq_case_number` (`case_number`),
   KEY `idx_contract_id` (`contract_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `court_hearings` (
   `hearing_id`    int         NOT NULL AUTO_INCREMENT,
   `filing_id`     int         NOT NULL,
+  `case_number`   varchar(50) DEFAULT NULL COMMENT 'เลขคดีที่ได้รับหลังยื่นฟ้อง',
   `hearing_date`  date        DEFAULT NULL,
   `hearing_time`  time        DEFAULT NULL,
   `court_room`    varchar(50) DEFAULT NULL,
@@ -353,6 +352,41 @@ ALTER TABLE `profile_change_requests`
   ADD CONSTRAINT `profile_change_requests_ibfk_1` FOREIGN KEY (`user_id`)     REFERENCES `users`   (`user_id`)   ON DELETE CASCADE,
   ADD CONSTRAINT `profile_change_requests_ibfk_2` FOREIGN KEY (`office_id`)   REFERENCES `offices` (`office_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `profile_change_requests_ibfk_3` FOREIGN KEY (`reviewed_by`) REFERENCES `users`   (`user_id`)   ON DELETE SET NULL;
+
+CREATE TABLE `postponement_requests` (
+  `postpone_id`    int         NOT NULL AUTO_INCREMENT,
+  `request_type`   varchar(20) NOT NULL COMMENT 'filing / hearing',
+  `reference_id`   int         NOT NULL COMMENT 'filing_id หรือ hearing_id',
+  `client_id`      int         NOT NULL,
+  `reason`         text        COMMENT 'เหตุผลที่ขอเลื่อน',
+  `requested_date` date        DEFAULT NULL COMMENT 'วันที่ต้องการเลื่อนไป',
+  `status`         varchar(20) NOT NULL DEFAULT 'pending' COMMENT 'pending, approved, rejected',
+  `lawyer_note`    text        DEFAULT NULL COMMENT 'หมายเหตุจากทนาย',
+  `created_at`     timestamp   DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`     timestamp   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`postpone_id`),
+  KEY `idx_type_ref`  (`request_type`, `reference_id`),
+  KEY `idx_client_id` (`client_id`),
+  KEY `idx_status`    (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='คำขอเลื่อนวันนัดยื่นฟ้อง / ขึ้นศาล จากลูกความ';
+
+CREATE TABLE `verdict_appointments` (
+  `appointment_id`   int         NOT NULL AUTO_INCREMENT,
+  `filing_id`        int         NOT NULL,
+  `scheduled_date`   date        NOT NULL COMMENT 'วันนัดฟังคำพิพากษา',
+  `scheduled_time`   time        DEFAULT NULL,
+  `note`             text        COMMENT 'หมายเหตุ',
+  `status`           varchar(20) NOT NULL DEFAULT 'scheduled' COMMENT 'scheduled, completed, postponed, cancelled',
+  `created_by`       int         DEFAULT NULL,
+  `created_at`       timestamp   DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`       timestamp   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`appointment_id`),
+  KEY `idx_filing_id`      (`filing_id`),
+  KEY `idx_scheduled_date` (`scheduled_date`),
+  CONSTRAINT `va_ibfk_1` FOREIGN KEY (`filing_id`) REFERENCES `filings` (`filing_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  COMMENT='ตารางนัดวันฟังคำพิพากษา';
 
 -- ============================================================
 -- SEED DATA

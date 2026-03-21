@@ -81,6 +81,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $success = '❌ ส่งการปฏิเสธแล้ว ทนายจะได้รับทราบ';
         }
     }
+    // ---- ขอเลื่อนวันนัด ----
+    if ($action === 'request_postpone') {
+        $requestType   = $_POST['request_type'] ?? '';   // filing / hearing
+        $referenceId   = (int)($_POST['reference_id'] ?? 0);
+        $reason        = trim($_POST['reason'] ?? '');
+        $requestedDate = $_POST['requested_date'] ?: null;
+
+        if (!in_array($requestType, ['filing','hearing']) || !$referenceId) {
+            $error = 'ข้อมูลไม่ถูกต้อง';
+        } elseif (!$reason) {
+            $error = 'กรุณาระบุเหตุผลที่ขอเลื่อน';
+        } else {
+            // ตรวจ ownership
+            if ($requestType === 'filing') {
+                $own = $pdo->prepare("SELECT f.filing_id FROM filings f JOIN contracts con ON f.contract_id=con.contract_id JOIN case_requests cr ON con.request_id=cr.request_id WHERE f.filing_id=? AND cr.client_id=?");
+            } else {
+                $own = $pdo->prepare("SELECT ch.hearing_id FROM court_hearings ch JOIN filings f ON ch.filing_id=f.filing_id JOIN contracts con ON f.contract_id=con.contract_id JOIN case_requests cr ON con.request_id=cr.request_id WHERE ch.hearing_id=? AND cr.client_id=?");
+            }
+            $own->execute([$referenceId, $clientId]);
+            if (!$own->fetch()) {
+                $error = 'ไม่พบข้อมูลหรือไม่มีสิทธิ์';
+            } else {
+                // ตรวจว่ามี pending request อยู่แล้วหรือเปล่า
+                $dup = $pdo->prepare("SELECT postpone_id FROM postponement_requests WHERE request_type=? AND reference_id=? AND status='pending'");
+                $dup->execute([$requestType, $referenceId]);
+                if ($dup->fetch()) {
+                    $error = 'มีคำขอเลื่อนที่รอดำเนินการอยู่แล้ว';
+                } else {
+                    $pdo->prepare("INSERT INTO postponement_requests (request_type, reference_id, client_id, reason, requested_date, status) VALUES (?, ?, ?, ?, ?, 'pending')")
+                        ->execute([$requestType, $referenceId, $clientId, $reason, $requestedDate]);
+                    $success = '📨 ส่งคำขอเลื่อนวันนัดแล้ว ทนายจะได้รับทราบ';
+                }
+            }
+        }
+    }
+
     if ($isAjax) {
         header('Content-Type: application/json');
         echo json_encode(['ok' => empty($error), 'msg' => $error ?: $success]);
@@ -100,7 +136,8 @@ $stmt = $pdo->prepare("
            con.payment_status, con.negotiation_status,
            con.lawyer_note, con.proposed_fee, con.client_response,
            con.negotiated_at,
-           f.filing_id, f.case_number, f.charge, f.filing_date,
+           f.filing_id, f.charge, f.scheduled_filing_date,
+           (SELECT MAX(ch.case_number) FROM court_hearings ch WHERE ch.filing_id = f.filing_id) AS case_number,
            ct.court_name,
            v.result AS verdict_result, v.verdict_date
     FROM case_requests cr
@@ -119,7 +156,7 @@ $cases = $stmt->fetchAll();
 $hearingStmt = $pdo->prepare("
     SELECT ch.hearing_id, ch.hearing_date, ch.hearing_time, ch.court_room,
            ch.hearing_round, ch.status, ch.notes,
-           f.case_number, f.charge,
+           ch.case_number, f.charge,
            ct.court_name,
            cr.request_id
     FROM court_hearings ch
@@ -143,6 +180,36 @@ foreach ($allHearings as $h) {
 
 // นับสัญญาที่รอตอบกลับ
 $pendingNeg = array_filter($cases, fn($c) => ($c['negotiation_status'] ?? '') === 'revision_requested');
+
+// ดึง postponement requests ทั้งหมดของลูกความ
+$postponeStmt = $pdo->prepare("
+    SELECT postpone_id, request_type, reference_id, status, reason, requested_date, lawyer_note, created_at
+    FROM postponement_requests
+    WHERE client_id = ?
+    ORDER BY created_at DESC
+");
+$postponeStmt->execute([$clientId]);
+$allPostponeRequests = $postponeStmt->fetchAll();
+
+// จัดกลุ่มตาม type+reference_id
+$postponeMap = [];
+foreach ($allPostponeRequests as $pr) {
+    $key = $pr['request_type'] . '_' . $pr['reference_id'];
+    $postponeMap[$key][] = $pr;
+}
+
+// ดึง scheduled_filing_date สำหรับแสดง countdown
+$filingDateMap = [];
+foreach ($cases as $c) {
+    if ($c['filing_id'] && $c['scheduled_filing_date']) {
+        $filingDateMap[$c['request_id']] = [
+            'filing_id'             => $c['filing_id'],
+            'scheduled_filing_date' => $c['scheduled_filing_date'],
+            'charge'                => $c['charge'] ?? '—',
+            'case_number'           => $c['case_number'] ?? null,
+        ];
+    }
+}
 
 $pageTitle = 'คดีของฉัน';
 include '../includes/header.php';
@@ -371,14 +438,60 @@ $negLabel = [
         </div>
     </div>
 
-    <!-- Filing Detail -->
+    <!-- Filing Detail + Countdown + Postpone Request -->
     <?php if ($case['filing_id']): ?>
-    <div style="margin-top:16px;padding:12px;background:#e8f4e8;border-radius:6px;">
-        <strong>🏛️ การยื่นฟ้อง:</strong>
-        เลขคดี <?= htmlspecialchars($case['case_number'] ?? '—') ?>
-        | ศาล: <?= htmlspecialchars($case['court_name'] ?? '—') ?>
-        | ข้อหา: <?= htmlspecialchars($case['charge'] ?? '—') ?>
-        | วันที่ยื่น: <?= $case['filing_date'] ?? '—' ?>
+    <div style="margin-top:16px;padding:14px;background:#e8f4e8;border-radius:8px;border:1px solid #b7dbb7;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+            <div>
+                <strong>🏛️ นัดวันยื่นฟ้อง:</strong><br>
+                <span style="font-size:.88rem;color:#374151;">
+                    <?php if ($case['case_number']): ?>
+                    📁 เลขคดี <?= htmlspecialchars($case['case_number']) ?> &nbsp;|&nbsp;
+                    <?php else: ?>
+                    <span style="color:#92400e;font-size:.78rem;">⏳ รอรับเลขคดี</span> &nbsp;|&nbsp;
+                    <?php endif; ?>
+                    ศาล: <?= htmlspecialchars($case['court_name'] ?? '—') ?> &nbsp;|&nbsp;
+                    ข้อหา: <?= htmlspecialchars($case['charge'] ?? '—') ?><br>
+                    <?php if ($case['scheduled_filing_date']): ?>
+                    📅 วันนัด: <strong><?= date('d/m/Y', strtotime($case['scheduled_filing_date'])) ?></strong>
+                    <?php else: ?>
+                    <span style="color:#94a3b8;">ยังไม่ได้กำหนดวันยื่น</span>
+                    <?php endif; ?>
+                </span>
+            </div>
+            <?php if ($case['scheduled_filing_date']): ?>
+            <?php
+                $fDateStr = $case['scheduled_filing_date'] . 'T00:00:00';
+                $fIsPast  = strtotime($case['scheduled_filing_date']) < strtotime('today');
+                $postponeKeyF = 'filing_' . $case['filing_id'];
+                $fPostpone = $postponeMap[$postponeKeyF][0] ?? null;
+            ?>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                <div class="countdown-pill <?= $fIsPast ? 'overdue' : '' ?>"
+                     data-datetime="<?= $fDateStr ?>">กำลังคำนวณ...</div>
+                <?php if (!$fIsPast && $case['contract_status'] === 'active'): ?>
+                    <?php if ($fPostpone && $fPostpone['status'] === 'pending'): ?>
+                    <span style="font-size:.75rem;background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:10px;font-weight:700;">
+                        ⏳ รอทนายอนุมัติคำขอเลื่อน
+                    </span>
+                    <?php elseif ($fPostpone && $fPostpone['status'] === 'approved'): ?>
+                    <span style="font-size:.75rem;background:#d1fae5;color:#065f46;padding:3px 10px;border-radius:10px;font-weight:700;">
+                        ✅ ทนายอนุมัติการเลื่อนแล้ว
+                    </span>
+                    <?php elseif ($fPostpone && $fPostpone['status'] === 'rejected'): ?>
+                    <span style="font-size:.75rem;background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:10px;font-weight:700;">
+                        ❌ ทนายไม่อนุมัติ: <?= htmlspecialchars(mb_substr($fPostpone['lawyer_note'] ?? '—', 0, 40)) ?>
+                    </span>
+                    <?php else: ?>
+                    <button class="btn btn-sm" style="background:#f97316;color:#fff;font-size:.75rem;padding:4px 12px;"
+                        onclick="openPostponeModal('filing', <?= $case['filing_id'] ?>, '<?= $case['scheduled_filing_date'] ?>')">
+                        📆 ขอเลื่อนวันยื่นฟ้อง
+                    </button>
+                    <?php endif; ?>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+        </div>
     </div>
     <?php endif; ?>
 
@@ -392,12 +505,17 @@ $negLabel = [
             $dtStr    = $dateStr . 'T' . $timeStr . ':00';
             $isPast   = strtotime($dateStr) < strtotime('today');
         ?>
+        <?php
+            $postponeKeyH = 'hearing_' . $h['hearing_id'];
+            $hPostpone = $postponeMap[$postponeKeyH][0] ?? null;
+        ?>
         <div class="hearing-card <?= $isPast ? 'overdue' : 'upcoming' ?>">
-            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:8px;">
                 <div>
                     <div style="font-weight:600; font-size:0.9rem; color:<?= $isPast ? '#842029' : '#1a3a5c' ?>">
                         <?= $isPast ? '🔴' : '🔔' ?>
                         ครั้งที่ <?= $h['hearing_round'] ?>
+                        <?= $h['case_number'] ? '— เลขคดี '.htmlspecialchars($h['case_number']) : '' ?>
                         — <?= htmlspecialchars($h['court_name']) ?>
                         <?= $h['court_room'] ? '| ห้อง '.htmlspecialchars($h['court_room']) : '' ?>
                     </div>
@@ -407,9 +525,31 @@ $negLabel = [
                         <?= $h['notes'] ? ' | '.htmlspecialchars(mb_substr($h['notes'],0,50)) : '' ?>
                     </div>
                 </div>
-                <div class="countdown-pill <?= $isPast ? 'overdue' : '' ?>"
-                     data-datetime="<?= $dtStr ?>">
-                    กำลังคำนวณ...
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+                    <div class="countdown-pill <?= $isPast ? 'overdue' : '' ?>"
+                         data-datetime="<?= $dtStr ?>">
+                        กำลังคำนวณ...
+                    </div>
+                    <?php if (!$isPast): ?>
+                        <?php if ($hPostpone && $hPostpone['status'] === 'pending'): ?>
+                        <span style="font-size:.72rem;background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:10px;font-weight:700;">
+                            ⏳ รอทนายอนุมัติคำขอเลื่อน
+                        </span>
+                        <?php elseif ($hPostpone && $hPostpone['status'] === 'approved'): ?>
+                        <span style="font-size:.72rem;background:#d1fae5;color:#065f46;padding:3px 10px;border-radius:10px;font-weight:700;">
+                            ✅ ทนายอนุมัติการเลื่อนแล้ว
+                        </span>
+                        <?php elseif ($hPostpone && $hPostpone['status'] === 'rejected'): ?>
+                        <span style="font-size:.72rem;background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:10px;font-weight:700;">
+                            ❌ <?= htmlspecialchars(mb_substr($hPostpone['lawyer_note'] ?? 'ไม่อนุมัติ', 0, 30)) ?>
+                        </span>
+                        <?php else: ?>
+                        <button class="btn btn-sm" style="background:#f97316;color:#fff;font-size:.72rem;padding:3px 10px;"
+                            onclick="openPostponeModal('hearing', <?= $h['hearing_id'] ?>, '<?= $h['hearing_date'] ?>')">
+                            📆 ขอเลื่อนนัดขึ้นศาล
+                        </button>
+                        <?php endif; ?>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -613,6 +753,101 @@ document.addEventListener('DOMContentLoaded', function() {
         body.style.display = 'block';
         if (icon) icon.style.transform = 'rotate(180deg)';
     }
+});
+</script>
+
+<!-- ===== Modal ขอเลื่อนวันนัด ===== -->
+<div class="modal-backdrop" id="modal-postpone">
+    <div class="modal-box" style="max-width:480px;">
+        <h3 id="postpone-title">📆 ขอเลื่อนวันนัด</h3>
+        <div id="postpone-current-date" style="background:#f0f4f8;border-radius:6px;padding:9px 14px;margin-bottom:14px;font-size:.87rem;color:#374151;"></div>
+        <form id="postpone-form" method="POST">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="request_postpone">
+            <input type="hidden" name="request_type" id="postpone-type">
+            <input type="hidden" name="reference_id" id="postpone-ref-id">
+            <div class="form-group" style="margin-bottom:14px;">
+                <label>วันที่ต้องการเลื่อนไป (ถ้าทราบ)</label>
+                <input type="date" name="requested_date" id="postpone-requested-date"
+                    style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:.87rem;">
+            </div>
+            <div class="form-group" style="margin-bottom:16px;">
+                <label>เหตุผลที่ขอเลื่อน <span style="color:red">*</span></label>
+                <textarea name="reason" id="postpone-reason" rows="4" required
+                    style="width:100%;padding:9px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:.87rem;resize:vertical;"
+                    placeholder="เช่น ติดภารกิจ, ไม่สามารถมาได้เนื่องจาก..."></textarea>
+            </div>
+            <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:9px 13px;margin-bottom:14px;font-size:.8rem;color:#92400e;">
+                ⚠️ คำขอนี้จะถูกส่งให้ทนายพิจารณา ทนายจะเป็นผู้ดำเนินการเลื่อนวันในระบบ
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+                <button type="button" onclick="closePostponeModal()"
+                    style="padding:9px 20px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;font-weight:700;cursor:pointer;">ยกเลิก</button>
+                <button type="submit" id="postpone-submit"
+                    style="padding:9px 24px;background:#f97316;color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">📨 ส่งคำขอ</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openPostponeModal(type, refId, currentDate) {
+    document.getElementById('postpone-type').value    = type;
+    document.getElementById('postpone-ref-id').value  = refId;
+    document.getElementById('postpone-reason').value  = '';
+    document.getElementById('postpone-requested-date').value = '';
+
+    const typeLabel = type === 'filing' ? 'วันนัดยื่นฟ้อง' : 'วันนัดขึ้นศาล';
+    document.getElementById('postpone-title').textContent = '📆 ขอเลื่อน' + typeLabel;
+
+    // แปลงวันที่เป็น format ไทย
+    const d = new Date(currentDate + 'T00:00:00');
+    const dateStr = d.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit', year:'numeric'});
+    document.getElementById('postpone-current-date').innerHTML =
+        `วันนัดปัจจุบัน: <strong>${dateStr}</strong>`;
+
+    // วันที่ขอเลื่อนต้องหลังจากวันนัดเดิม
+    document.getElementById('postpone-requested-date').min = currentDate;
+
+    document.getElementById('modal-postpone').classList.add('open');
+    setTimeout(() => document.getElementById('postpone-reason').focus(), 100);
+}
+
+function closePostponeModal() {
+    document.getElementById('modal-postpone').classList.remove('open');
+}
+
+document.getElementById('modal-postpone').addEventListener('click', function(e) {
+    if (e.target === this) closePostponeModal();
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    var form = document.getElementById('postpone-form');
+    if (!form) return;
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const btn = document.getElementById('postpone-submit');
+        const orig = btn.textContent;
+        btn.disabled = true; btn.textContent = '⏳ กำลังส่ง...';
+        try {
+            const res  = await fetch(location.pathname, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                body: new FormData(this)
+            });
+            const data = await res.json();
+            closePostponeModal();
+            if (data.ok) {
+                await Swal.fire({ icon:'success', title:'ส่งคำขอแล้ว!', text: data.msg,
+                    confirmButtonColor:'#1a3a5c', timer:2200, timerProgressBar:true, showConfirmButton:false });
+                location.reload();
+            } else {
+                Swal.fire({ icon:'error', title:'ไม่สำเร็จ', text: data.msg, confirmButtonColor:'#1a3a5c' });
+            }
+        } catch {
+            Swal.fire({ icon:'error', title:'ผิดพลาด', text:'เชื่อมต่อไม่ได้', confirmButtonColor:'#1a3a5c' });
+        } finally { btn.disabled = false; btn.textContent = orig; }
+    });
 });
 </script>
 

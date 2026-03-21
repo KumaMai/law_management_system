@@ -62,35 +62,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$officeId || !$roleId) {
                     $error = 'ไม่พบข้อมูลสำนักงานหรือ role กรุณาติดต่อผู้ดูแลระบบ';
                 } else {
-                    $hash = password_hash($password, PASSWORD_BCRYPT);
-
-                    try {
-                        $pdo->prepare("
-                            INSERT INTO users (username, office_id, role_id, email, password_hash, status)
-                            VALUES (?, ?, ?, ?, ?, 'active')
-                        ")->execute([$username, $officeId, $roleId, $email, $hash]);
-                    } catch(Exception $e) {
-                        $pdo->prepare("
-                            INSERT INTO users (office_id, role_id, email, password_hash, status)
-                            VALUES (?, ?, ?, ?, 'active')
-                        ")->execute([$officeId, $roleId, $email, $hash]);
+                    // ตรวจ citizen_id ซ้ำก่อน (ถ้ากรอกมา)
+                    if ($citizenId) {
+                        $dupCitizen = $pdo->prepare("SELECT client_id FROM client_profiles WHERE citizen_id=?");
+                        $dupCitizen->execute([$citizenId]);
+                        if ($dupCitizen->fetch()) {
+                            $error = 'เลขบัตรประชาชนนี้ถูกใช้งานแล้ว';
+                        }
                     }
 
-                    $userId = $pdo->lastInsertId();
+                    if (!$error) {
+                        $hash = password_hash($password, PASSWORD_BCRYPT);
 
-                    $pdo->prepare("
-                        INSERT INTO client_profiles (user_id, fname, lname, citizen_id, phone, address)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    ")->execute([
-                        $userId,
-                        $fname,
-                        $lname,
-                        $citizenId ?: null,
-                        $phone ?: null,
-                        $address ?: null,
-                    ]);
+                        // ใช้ Transaction ครอบทั้ง 2 INSERT
+                        // ถ้าอันใดอันหนึ่งล้มเหลวจะ rollback ทั้งคู่
+                        $pdo->beginTransaction();
+                        try {
+                            try {
+                                $pdo->prepare("
+                                    INSERT INTO users (username, office_id, role_id, email, password_hash, status)
+                                    VALUES (?, ?, ?, ?, ?, 'active')
+                                ")->execute([$username, $officeId, $roleId, $email, $hash]);
+                            } catch(Exception $e) {
+                                $pdo->prepare("
+                                    INSERT INTO users (office_id, role_id, email, password_hash, status)
+                                    VALUES (?, ?, ?, ?, 'active')
+                                ")->execute([$officeId, $roleId, $email, $hash]);
+                            }
 
-                    $success = 'สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ';
+                            $userId = $pdo->lastInsertId();
+
+                            $pdo->prepare("
+                                INSERT INTO client_profiles (user_id, fname, lname, citizen_id, phone, address)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ")->execute([
+                                $userId,
+                                $fname,
+                                $lname,
+                                $citizenId ?: null,
+                                $phone ?: null,
+                                $address ?: null,
+                            ]);
+
+                            $pdo->commit();
+                            $success = 'สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ';
+
+                        } catch (Exception $e) {
+                            $pdo->rollBack();
+                            // แยก error message ให้ผู้ใช้เข้าใจ
+                            $msg = $e->getMessage();
+                            if (strpos($msg, 'citizen_id') !== false) {
+                                $error = 'เลขบัตรประชาชนนี้ถูกใช้งานแล้ว';
+                            } elseif (strpos($msg, 'email') !== false || strpos($msg, 'username') !== false) {
+                                $error = 'Username หรืออีเมลนี้ถูกใช้งานแล้ว';
+                            } else {
+                                $error = 'เกิดข้อผิดพลาดในระบบ กรุณาลองใหม่อีกครั้ง';
+                            }
+                        }
+                    }
                 }
             }
         } catch (Exception $e) {

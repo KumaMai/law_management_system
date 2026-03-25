@@ -406,3 +406,17 @@ INSERT INTO `courts` (court_name, court_type, location) VALUES
 --   php -r "echo password_hash('YourPassword', PASSWORD_BCRYPT);"
 INSERT INTO `users` (username, office_id, role_id, email, password_hash, status) VALUES
 ('admin', 1, 1, 'admin@lawfirm.com', 'PENDING_HASH', 'active');
+
+-- 1. FK ที่หายไปจริงๆ 2 ตัว:
+
+ALTER TABLE `postponement_requests`
+  ADD CONSTRAINT `postponement_requests_ibfk_1`
+    FOREIGN KEY (`client_id`)
+    REFERENCES `client_profiles` (`client_id`)
+    ON DELETE CASCADE;
+
+ALTER TABLE `verdict_appointments`
+  ADD CONSTRAINT `va_ibfk_2`
+    FOREIGN KEY (`created_by`)
+    REFERENCES `users` (`user_id`)
+    ON DELETE SET NULL;

@@ -389,6 +389,16 @@ CREATE TABLE `verdict_appointments` (
   COMMENT='ตารางนัดวันฟังคำพิพากษา';
 
 -- ============================================================
+-- INDEXES (Performance)
+-- ============================================================
+
+-- court_hearings.case_number — query/แสดงผลบ่อยใน hearings.php
+ALTER TABLE `court_hearings` ADD INDEX `idx_case_number` (`case_number`);
+
+-- filings.court_id — JOIN กับ courts ทุก query ใน filings.php
+ALTER TABLE `filings` ADD INDEX `idx_court_id` (`court_id`);
+
+-- ============================================================
 -- SEED DATA
 -- ============================================================
 

@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
 $pdo        = getDB();
@@ -58,6 +59,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
         $_POST['scheduled_filing_date'] ?: null,
     ]);
 
+    $newFilingId = (int)$pdo->lastInsertId();
+    audit_log($pdo, $officeId, $_SESSION['user_id'], 'create', 'filing', $newFilingId, 'เพิ่มนัดยื่นฟ้อง สัญญา #'.$newContract);
+
     if ($isAjax) {
         header('Content-Type: application/json');
         echo json_encode(['ok' => true, 'msg' => 'เพิ่มนัดยื่นฟ้องสำเร็จ']);
@@ -106,6 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
             WHERE filing_id=?
         ")->execute([$courtId, $charge ?: null, $filingDate ?: null, $filingId]);
 
+        audit_log($pdo, $officeId, $_SESSION['user_id'], 'update', 'filing', $filingId, 'แก้ไขนัดยื่นฟ้อง #'.$filingId);
         if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'แก้ไขข้อมูลนัดยื่นฟ้องเรียบร้อยแล้ว']); exit; }
         header('Location: /pages/filings.php'); exit;
     }
@@ -136,6 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่สามารถลบได้ มีนัดขึ้นศาลหรือคำพิพากษาผูกอยู่กับการยื่นฟ้องนี้']); exit; }
         } else {
             $pdo->prepare("DELETE FROM filings WHERE filing_id=?")->execute([$filingId]);
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'delete', 'filing', $filingId, 'ลบนัดยื่นฟ้อง #'.$filingId);
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบการยื่นฟ้องเรียบร้อยแล้ว']); exit; }
         }
         header('Location: /pages/filings.php'); exit;

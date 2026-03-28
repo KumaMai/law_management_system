@@ -2,7 +2,7 @@
 # รอให้ MySQL พร้อมก่อน
 echo "⏳ Waiting for MySQL to be ready..."
 until php -r "
-new PDO('mysql:host=law_db;dbname=law_system', 'law_user', 'law_password');
+new PDO('mysql:host=law_management_db;dbname=law_system', 'law_user', 'law_password');
 " 2>/dev/null; do
   sleep 2
 done
@@ -10,7 +10,7 @@ done
 echo "✅ MySQL ready. Setting password hash..."
 
 php -r "
-\$pdo = new PDO('mysql:host=law_db;dbname=law_system', 'law_user', 'law_password');
+\$pdo = new PDO('mysql:host=law_management_db;dbname=law_system', 'law_user', 'law_password');
 
 // Check if hash already set
 \$row = \$pdo->query(\"SELECT password_hash FROM users WHERE email='admin@lawfirm.com'\")->fetch();

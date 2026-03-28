@@ -25,11 +25,28 @@ $_sb_name  = 'ผู้ใช้งาน';
 $_sb_role_label = '';
 $_sb_sign_badge = 0;
 
+$_sb_notif_count = 0;
+$_sb_chat_count  = 0;
+
 if (isLoggedIn()) {
     $_sb_pdo    = getDB();
     $_sb_uid    = $_SESSION['user_id'];
     $_sb_role   = $_SESSION['role'];
     $_sb_oid    = $_SESSION['office_id'];
+
+    // นับแจ้งเตือนที่ยังไม่อ่าน
+    try {
+        require_once __DIR__ . '/../config/notification_helper.php';
+        $_sb_notif_count = notif_count_unread($_sb_pdo, $_sb_uid);
+    } catch (Exception $e) {}
+
+    // นับแชทที่ยังไม่อ่าน (lawyer/client เท่านั้น)
+    try {
+        if ($_sb_role !== 'admin') {
+            require_once __DIR__ . '/../config/chat_helper.php';
+            $_sb_chat_count = chat_count_unread($_sb_pdo, $_sb_uid, $_sb_oid);
+        }
+    } catch (Exception $e) {}
 
     // ดึง profile photo + ชื่อ
     try {
@@ -91,6 +108,31 @@ $_sb_cur = basename($_SERVER['PHP_SELF']);
 <button class="sb-hamburger" onclick="toggleMobileSidebar()">☰</button>
 <div class="sb-overlay" id="sbOverlay" onclick="toggleMobileSidebar()"></div>
 
+<!-- Topbar with bell notification -->
+<div class="topbar" id="topbar">
+    <div></div>
+    <div class="topbar-right">
+        <div class="notif-bell-wrap" id="notifBellWrap">
+            <button class="notif-bell-btn" id="notifBellBtn" onclick="toggleNotifDropdown()">
+                🔔
+                <?php if ($_sb_notif_count > 0): ?>
+                <span class="notif-bell-badge" id="notifBellBadge"><?= $_sb_notif_count > 99 ? '99+' : $_sb_notif_count ?></span>
+                <?php endif; ?>
+            </button>
+            <div class="notif-dropdown" id="notifDropdown">
+                <div class="notif-dd-header">
+                    <strong>การแจ้งเตือน</strong>
+                    <a href="/pages/notifications.php?mark_all=1" onclick="markAllNotifRead(event)">อ่านทั้งหมด</a>
+                </div>
+                <div class="notif-dd-list" id="notifDdList">
+                    <div style="text-align:center;padding:20px;color:#94a3b8;">กำลังโหลด...</div>
+                </div>
+                <a href="/pages/notifications.php" class="notif-dd-footer">ดูทั้งหมด</a>
+            </div>
+        </div>
+    </div>
+</div>
+
 <nav class="sidebar" id="sidebar">
 
     <!-- Brand -->
@@ -110,6 +152,21 @@ $_sb_cur = basename($_SERVER['PHP_SELF']);
             <span class="sb-link-icon">🏠</span><span class="sb-link-text sb-hide-collapsed">หน้าหลัก</span>
         </a>
 
+        <!-- ลิงก์กลาง (ทุก role) -->
+        <a href="/pages/notifications.php" class="sb-link <?= $_sb_cur==='notifications.php'?'active':'' ?>">
+            <span class="sb-link-icon">🔔</span><span class="sb-link-text sb-hide-collapsed">การแจ้งเตือน</span>
+            <?php if ($_sb_notif_count > 0): ?><span class="sb-badge"><?= $_sb_notif_count > 99 ? '99+' : $_sb_notif_count ?></span><?php endif; ?>
+        </a>
+        <a href="/pages/calendar.php" class="sb-link <?= $_sb_cur==='calendar.php'?'active':'' ?>">
+            <span class="sb-link-icon">📅</span><span class="sb-link-text sb-hide-collapsed">ปฏิทิน</span>
+        </a>
+        <?php if ($_SESSION['role'] !== 'admin'): ?>
+        <a href="/pages/chat.php" class="sb-link <?= $_sb_cur==='chat.php'?'active':'' ?>">
+            <span class="sb-link-icon">💬</span><span class="sb-link-text sb-hide-collapsed">ข้อความ</span>
+            <?php if ($_sb_chat_count > 0): ?><span class="sb-badge"><?= $_sb_chat_count > 99 ? '99+' : $_sb_chat_count ?></span><?php endif; ?>
+        </a>
+        <?php endif; ?>
+
         <?php if ($_SESSION['role'] === 'admin'): ?>
         <div class="sb-section">จัดการระบบ</div>
         <a href="/pages/lawyers.php"           class="sb-link <?= $_sb_cur==='lawyers.php'?'active':'' ?>"><span class="sb-link-icon">👨‍⚖️</span><span class="sb-link-text sb-hide-collapsed">ทนายความ</span></a>
@@ -118,6 +175,7 @@ $_sb_cur = basename($_SERVER['PHP_SELF']);
         <a href="/pages/courts.php"            class="sb-link <?= $_sb_cur==='courts.php'?'active':'' ?>"><span class="sb-link-icon">🏛️</span><span class="sb-link-text sb-hide-collapsed">ข้อมูลศาล</span></a>
         <a href="/pages/reports.php"           class="sb-link <?= $_sb_cur==='reports.php'?'active':'' ?>"><span class="sb-link-icon">📊</span><span class="sb-link-text sb-hide-collapsed">รายงาน</span></a>
         <a href="/pages/settings.php"          class="sb-link <?= $_sb_cur==='settings.php'?'active':'' ?>"><span class="sb-link-icon">⚙️</span><span class="sb-link-text sb-hide-collapsed">ตั้งค่า</span></a>
+        <a href="/pages/activity_log.php"      class="sb-link <?= $_sb_cur==='activity_log.php'?'active':'' ?>"><span class="sb-link-icon">📜</span><span class="sb-link-text sb-hide-collapsed">ประวัติกิจกรรม</span></a>
         <div class="sb-section">คดีความ</div>
         <a href="/pages/case_requests.php"     class="sb-link <?= $_sb_cur==='case_requests.php'?'active':'' ?>"><span class="sb-link-icon">📋</span><span class="sb-link-text sb-hide-collapsed">คำขอว่าจ้าง</span></a>
         <a href="/pages/contracts.php"         class="sb-link <?= $_sb_cur==='contracts.php'?'active':'' ?>"><span class="sb-link-icon">📄</span><span class="sb-link-text sb-hide-collapsed">สัญญา</span></a>
@@ -212,18 +270,21 @@ function applySidebarState() {
     var sb   = document.getElementById('sidebar');
     var main = document.getElementById('sbMain');
     var icon = document.getElementById('sbToggleIcon');
+    var tb   = document.getElementById('topbar');
     if (!sb) return;
     if (sbCollapsed) {
         sb.style.width      = SB_W_COL + 'px';
         sb.style.minWidth   = SB_W_COL + 'px';
         sb.classList.add('collapsed');
         if (main) main.style.marginLeft = SB_W_COL + 'px';
+        if (tb)   tb.style.left = SB_W_COL + 'px';
         if (icon) icon.textContent = '▶';
     } else {
         sb.style.width      = SB_W + 'px';
         sb.style.minWidth   = SB_W + 'px';
         sb.classList.remove('collapsed');
         if (main) main.style.marginLeft = SB_W + 'px';
+        if (tb)   tb.style.left = SB_W + 'px';
         if (icon) icon.textContent = '◀';
     }
 }
@@ -278,6 +339,49 @@ function openEditProfileFromSidebar() {
 applySidebarState();
 document.addEventListener('DOMContentLoaded', applySidebarState);
 window.addEventListener('load', applySidebarState);
+
+// --- Notification Bell Dropdown ---
+function toggleNotifDropdown() {
+    var dd = document.getElementById('notifDropdown');
+    if (!dd) return;
+    var show = !dd.classList.contains('show');
+    dd.classList.toggle('show', show);
+    if (show) loadNotifDropdown();
+}
+
+function loadNotifDropdown() {
+    fetch('/pages/notifications.php?ajax=recent')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                var list = document.getElementById('notifDdList');
+                if (list) list.innerHTML = data.html || '<div style="text-align:center;padding:20px;color:#94a3b8;">ไม่มีการแจ้งเตือน</div>';
+                var badge = document.getElementById('notifBellBadge');
+                if (badge) {
+                    if (data.count > 0) { badge.textContent = data.count > 99 ? '99+' : data.count; badge.style.display = ''; }
+                    else { badge.style.display = 'none'; }
+                }
+            }
+        }).catch(function(){});
+}
+
+function markAllNotifRead(e) {
+    e.preventDefault();
+    fetch('/pages/notifications.php?ajax=mark_all_read', {
+        method: 'POST',
+        headers: {'Content-Type':'application/x-www-form-urlencoded'},
+        body: 'csrf_token=<?= csrf_token() ?>'
+    }).then(function() { loadNotifDropdown(); });
+}
+
+// ปิด dropdown เมื่อคลิกข้างนอก
+document.addEventListener('click', function(e) {
+    var wrap = document.getElementById('notifBellWrap');
+    if (wrap && !wrap.contains(e.target)) {
+        var dd = document.getElementById('notifDropdown');
+        if (dd) dd.classList.remove('show');
+    }
+});
 
 <?php if (isset($_GET['edit'])): ?>
 window.addEventListener('load', function(){

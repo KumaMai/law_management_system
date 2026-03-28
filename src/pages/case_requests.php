@@ -10,6 +10,8 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/notification_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -48,19 +50,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $role === 'lawyer') {
                     (request_id, contract_date, status, payment_status, contract_review_status)
                 VALUES (?, CURDATE(), 'active', 'pending', 'pending_lawyer_review')
             ")->execute([$requestId]);
+
+            // แจ้งเตือนลูกความ + admin
+            $crRow = $pdo->prepare("SELECT client_id FROM case_requests WHERE request_id=?");
+            $crRow->execute([$requestId]);
+            $crClientId = $crRow->fetchColumn();
+            $clientUid = notif_get_user_id_by_client($pdo, (int)$crClientId);
+            if ($clientUid) {
+                notif_create($pdo, $officeId, $clientUid, 'case_request', 'ทนายรับคำขอว่าจ้างของคุณแล้ว', 'คำขอ #'.$requestId.' ได้รับการอนุมัติ', '/pages/my_cases.php', 'case_request', $requestId);
+            }
+            notif_create_multi($pdo, $officeId, notif_get_admin_ids($pdo, $officeId), 'case_request', 'คำขอว่าจ้าง #'.$requestId.' ได้รับการอนุมัติ', null, '/pages/case_requests.php', 'case_request', $requestId);
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'approve', 'case_request', $requestId, 'ทนายอนุมัติคำขอว่าจ้าง #'.$requestId);
         }
 
     } elseif ($action === 'reject') {
         $reason = trim($_POST['reject_reason'] ?? '');
 
         // ── แก้ Missing Authorization: เพิ่ม AND lawyer_id=? ──
-        $pdo->prepare("
+        $stmt2 = $pdo->prepare("
             UPDATE case_requests
             SET status = 'rejected', reject_reason = ?
             WHERE request_id = ?
               AND lawyer_id  = ?
               AND status     = 'pending'
-        ")->execute([$reason, $requestId, $lawyerId]);
+        ");
+        $stmt2->execute([$reason, $requestId, $lawyerId]);
+
+        if ($stmt2->rowCount() > 0) {
+            $crRow = $pdo->prepare("SELECT client_id FROM case_requests WHERE request_id=?");
+            $crRow->execute([$requestId]);
+            $crClientId = $crRow->fetchColumn();
+            $clientUid = notif_get_user_id_by_client($pdo, (int)$crClientId);
+            if ($clientUid) {
+                notif_create($pdo, $officeId, $clientUid, 'case_request', 'คำขอว่าจ้างถูกปฏิเสธ', 'คำขอ #'.$requestId.' ถูกปฏิเสธ', '/pages/my_cases.php', 'case_request', $requestId);
+            }
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'reject', 'case_request', $requestId, 'ทนายปฏิเสธคำขอว่าจ้าง #'.$requestId);
+        }
     }
 
     if ($isAjax) {
@@ -91,6 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $role === 'admin') {
     if ($action === 'force_expire') {
         $pdo->prepare("UPDATE case_requests SET status='expired' WHERE request_id=? AND status='pending'")
             ->execute([$requestId]);
+        audit_log($pdo, $officeId, $_SESSION['user_id'], 'expire', 'case_request', $requestId, 'Admin บังคับหมดอายุคำขอ #'.$requestId);
         $msg = '⌛ บังคับหมดอายุคำขอแล้ว';
         if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>$msg]); exit; }
     }
@@ -99,12 +125,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $role === 'admin') {
         $reason = trim($_POST['cancel_reason'] ?? 'ยกเลิกโดย Admin');
         $pdo->prepare("UPDATE case_requests SET status='rejected', reject_reason=? WHERE request_id=? AND status IN ('pending','approved')")
             ->execute([$reason, $requestId]);
-        // ถ้ามีสัญญา active → terminate ด้วย
         $pdo->prepare("
             UPDATE contracts SET status='terminated',
                 lawyer_note=CONCAT(COALESCE(lawyer_note,''), ' | Admin ยกเลิก: ', ?)
             WHERE request_id=? AND status='active'
         ")->execute([$reason, $requestId]);
+        audit_log($pdo, $officeId, $_SESSION['user_id'], 'cancel', 'case_request', $requestId, 'Admin ยกเลิกคำขอ #'.$requestId.': '.$reason);
         $msg = '❌ ยกเลิกคำขอเรียบร้อยแล้ว';
         if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>$msg]); exit; }
     }
@@ -217,6 +243,13 @@ $statusTH = ['pending'=>'รอดำเนินการ','approved'=>'อน�
                         <button type="button" class="btn btn-danger btn-sm"
                                 onclick="promptReject(this.closest('form'))">✘ ปฏิเสธ</button>
                     </form>
+                </td>
+                <?php elseif ($role === 'lawyer' && $r['status'] === 'approved'): ?>
+                <td>
+                    <a href="/pages/chat.php?request_id=<?= $r['request_id'] ?>"
+                       class="btn btn-sm" style="background:#1e3a5f;color:#fff;border:none;font-weight:700;padding:4px 10px;border-radius:6px;text-decoration:none;">
+                        💬 แชท
+                    </a>
                 </td>
                 <?php elseif ($role === 'lawyer'): ?>
                 <td><span style="color:#aaa">—</span></td>

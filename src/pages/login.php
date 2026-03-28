@@ -67,6 +67,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($error)) {
             $_SESSION['office_id']   = $user['office_id'];
             $_SESSION['office_name'] = $user['office_name'];
 
+            // บันทึก audit log
+            try {
+                require_once '../config/activity_log_helper.php';
+                audit_log($pdo, (int)$user['office_id'], (int)$user['user_id'], 'login', 'user', (int)$user['user_id'], 'เข้าสู่ระบบ ('.$user['role_name'].')');
+            } catch (Exception $e) {}
+
             header('Location: /pages/dashboard.php');
             exit;
 

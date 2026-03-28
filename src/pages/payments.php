@@ -5,6 +5,8 @@ require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
 require_once '../config/file_upload_helper.php';
+require_once '../config/notification_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -95,7 +97,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'pay')
             (contract_id, amount, payment_method, payment_date, slip_file, note, installment_note, status, paid_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
     ")->execute([$contractId, $amount, $method, $paymentDate, $slipFile, $note, $installmentNote, $userId]);
- 
+    $newPayId = (int)$pdo->lastInsertId();
+
+    // แจ้งเตือนทนาย + admin
+    $crInfo = $pdo->prepare("SELECT cr.lawyer_id, cr.office_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+    $crInfo->execute([$contractId]);
+    $crInfo = $crInfo->fetch();
+    if ($crInfo) {
+        $lwUid = notif_get_user_id_by_lawyer($pdo, (int)$crInfo['lawyer_id']);
+        if ($lwUid) notif_create($pdo, $officeId, $lwUid, 'payment', 'ลูกความแจ้งชำระเงิน', 'สัญญา #'.$contractId.' จำนวน '.number_format($amount, 2).' บาท', '/pages/payments.php?contract_id='.$contractId, 'payment', $newPayId);
+        notif_create_multi($pdo, $officeId, notif_get_admin_ids($pdo, $officeId), 'payment', 'แจ้งชำระเงินใหม่ สัญญา #'.$contractId, null, '/pages/payments.php?contract_id='.$contractId, 'payment', $newPayId);
+    }
+    audit_log($pdo, $officeId, $userId, 'create', 'payment', $newPayId, 'ลูกความแจ้งชำระเงิน '.number_format($amount, 2).' บาท สัญญา #'.$contractId);
+
     header('Location: /pages/payments.php?contract_id='.$contractId.'&paid=1');
     exit;
 }
@@ -181,6 +195,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['
         }
  
         $pdo->commit();
+
+        // แจ้งเตือนลูกความ
+        $payInfo = $pdo->prepare("SELECT p.paid_by, p.amount FROM payments p WHERE p.payment_id=?");
+        $payInfo->execute([$paymentId]);
+        $payInfo = $payInfo->fetch();
+        if ($payInfo && $payInfo['paid_by']) {
+            $nTitle = $newStatus === 'confirmed' ? 'การชำระเงินได้รับการยืนยัน' : 'การชำระเงินถูกปฏิเสธ';
+            notif_create($pdo, $officeId, (int)$payInfo['paid_by'], 'payment', $nTitle, number_format((float)$payInfo['amount'], 2).' บาท สัญญา #'.$contractId, '/pages/payments.php?contract_id='.$contractId, 'payment', $paymentId);
+        }
+        audit_log($pdo, $officeId, $userId, $newStatus === 'confirmed' ? 'confirm' : 'reject', 'payment', $paymentId, ($newStatus === 'confirmed' ? 'ยืนยัน' : 'ปฏิเสธ').'การชำระเงิน #'.$paymentId.' สัญญา #'.$contractId);
 
         if ($isAjax) {
             header('Content-Type: application/json');

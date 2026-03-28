@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/activity_log_helper.php';
 requireRole('admin');
 
 $pdo      = getDB();
@@ -42,6 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $hash = password_hash($newPw, PASSWORD_BCRYPT);
             $pdo->prepare("UPDATE users SET password_hash=? WHERE user_id=?")->execute([$hash, $userId]);
+            audit_log($pdo, $officeId, $myUserId, 'update', 'user', $userId, 'รีเซ็ตรหัสผ่านผู้ใช้ #'.$userId);
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'รีเซ็ตรหัสผ่านเรียบร้อยแล้ว']); exit; }
         }
     }
@@ -55,6 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE users SET status=? WHERE user_id=?")->execute([$newStatus, $userId]);
             // sync lawyer/client profile status ด้วย
             $pdo->prepare("UPDATE lawyer_profiles SET status=? WHERE user_id=?")->execute([$newStatus, $userId]);
+            audit_log($pdo, $officeId, $myUserId, 'update', 'user', $userId, ($newStatus==='active'?'เปิดใช้งาน':'ระงับ').'บัญชีผู้ใช้ #'.$userId);
             $msg = $newStatus === 'active' ? '✅ เปิดใช้งานบัญชีแล้ว' : '🔒 ระงับบัญชีแล้ว';
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>$msg]); exit; }
         }
@@ -81,6 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("DELETE FROM client_profiles WHERE user_id=?")->execute([$userId]);
                     $pdo->prepare("DELETE FROM users WHERE user_id=?")->execute([$userId]);
                     $pdo->commit();
+                    audit_log($pdo, $officeId, $myUserId, 'delete', 'user', $userId, 'ลบบัญชีผู้ใช้ #'.$userId);
                     if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบบัญชีผู้ใช้เรียบร้อยแล้ว']); exit; }
                 } catch (Exception $e) {
                     $pdo->rollBack();

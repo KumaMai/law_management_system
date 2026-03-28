@@ -4,6 +4,8 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/notification_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
 if ($_SESSION['role'] !== 'client') {
@@ -54,6 +56,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     (office_id, client_id, lawyer_id, detail, request_date, expire_date, status)
                 VALUES (?, ?, ?, ?, ?, ?, 'pending')
             ")->execute([$officeId, $clientId, $lawyerId, $detail, $requestDate, $expireDate]);
+            $newReqId = (int)$pdo->lastInsertId();
+
+            // แจ้งเตือนทนาย
+            $lawyerUid = notif_get_user_id_by_lawyer($pdo, $lawyerId);
+            if ($lawyerUid) {
+                notif_create($pdo, $officeId, $lawyerUid, 'case_request', 'มีคำขอว่าจ้างใหม่', 'ลูกความส่งคำขอว่าจ้างมาให้คุณ', '/pages/case_requests.php', 'case_request', $newReqId);
+            }
+            // แจ้ง admin
+            notif_create_multi($pdo, $officeId, notif_get_admin_ids($pdo, $officeId), 'case_request', 'คำขอว่าจ้างใหม่ #'.$newReqId, null, '/pages/case_requests.php', 'case_request', $newReqId);
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'create', 'case_request', $newReqId, 'ลูกความส่งคำขอว่าจ้างใหม่');
 
             if ($isAjax) {
                 header('Content-Type: application/json');

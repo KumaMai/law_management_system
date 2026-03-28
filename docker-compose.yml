@@ -3,7 +3,7 @@ version: '3.8'
 services:
   php:
     build: ./docker/php
-    container_name: law_php
+    container_name: law_management_php
     volumes:
       - ./src:/var/www/html
     depends_on:
@@ -13,9 +13,9 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: law_nginx
+    container_name: law_management_nginx
     ports:
-      - "8080:80"
+      - "8181:80"
     volumes:
       - ./src:/var/www/html
       - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
@@ -26,7 +26,7 @@ services:
 
   db:
     image: mysql:8.0
-    container_name: law_db
+    container_name: law_management_db
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: law_system
@@ -42,9 +42,9 @@ services:
 
   phpmyadmin:
     image: phpmyadmin/phpmyadmin
-    container_name: law_phpmyadmin
+    container_name: law_management_phpmyadmin
     environment:
-      PMA_HOST: law_db
+      PMA_HOST: law_management_db
       PMA_USER: law_user
       PMA_PASSWORD: law_password
     ports:

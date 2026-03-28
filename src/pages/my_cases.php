@@ -4,10 +4,13 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/notification_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
-$pdo    = getDB();
-$userId = $_SESSION['user_id'];
+$pdo      = getDB();
+$userId   = $_SESSION['user_id'];
+$officeId = $_SESSION['office_id'];
 $error  = '';
 $success= '';
 
@@ -51,6 +54,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     negotiated_at      = NOW()
                 WHERE contract_id = ?
             ")->execute([$contractId]);
+            // แจ้งทนาย
+            $lInfo = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+            $lInfo->execute([$contractId]); $lid = $lInfo->fetchColumn();
+            $lwUid = $lid ? notif_get_user_id_by_lawyer($pdo, (int)$lid) : null;
+            if ($lwUid) notif_create($pdo, $officeId, $lwUid, 'contract', 'ลูกความยอมรับเงื่อนไขสัญญา', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
+            audit_log($pdo, $officeId, $userId, 'approve', 'contract', $contractId, 'ลูกความยอมรับเงื่อนไขสัญญา #'.$contractId);
             $success = '✅ ยอมรับเงื่อนไขแล้ว รอทนายยืนยันสัญญาสุดท้าย';
 
         } elseif ($action === 'client_counter') {
@@ -65,6 +74,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         negotiated_at      = NOW()
                     WHERE contract_id = ?
                 ")->execute([$msg, $contractId]);
+                $lInfo2 = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+                $lInfo2->execute([$contractId]); $lid2 = $lInfo2->fetchColumn();
+                $lwUid2 = $lid2 ? notif_get_user_id_by_lawyer($pdo, (int)$lid2) : null;
+                if ($lwUid2) notif_create($pdo, $officeId, $lwUid2, 'contract', 'ลูกความส่งข้อเสนอโต้กลับ', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
+                audit_log($pdo, $officeId, $userId, 'update', 'contract', $contractId, 'ลูกความโต้กลับสัญญา #'.$contractId);
                 $success = '💬 ส่งข้อเสนอโต้กลับแล้ว';
             }
 
@@ -78,6 +92,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     negotiated_at      = NOW()
                 WHERE contract_id = ?
             ")->execute([$msg, $contractId]);
+            $lInfo3 = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+            $lInfo3->execute([$contractId]); $lid3 = $lInfo3->fetchColumn();
+            $lwUid3 = $lid3 ? notif_get_user_id_by_lawyer($pdo, (int)$lid3) : null;
+            if ($lwUid3) notif_create($pdo, $officeId, $lwUid3, 'contract', 'ลูกความปฏิเสธเงื่อนไขสัญญา', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
+            audit_log($pdo, $officeId, $userId, 'reject', 'contract', $contractId, 'ลูกความปฏิเสธสัญญา #'.$contractId);
             $success = '❌ ส่งการปฏิเสธแล้ว ทนายจะได้รับทราบ';
         }
     }
@@ -111,6 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $pdo->prepare("INSERT INTO postponement_requests (request_type, reference_id, client_id, reason, requested_date, status) VALUES (?, ?, ?, ?, ?, 'pending')")
                         ->execute([$requestType, $referenceId, $clientId, $reason, $requestedDate]);
+                    audit_log($pdo, $officeId, $userId, 'create', 'postponement', (int)$pdo->lastInsertId(), 'ลูกความขอเลื่อน '.$requestType.' #'.$referenceId);
                     $success = '📨 ส่งคำขอเลื่อนวันนัดแล้ว ทนายจะได้รับทราบ';
                 }
             }
@@ -327,6 +347,12 @@ $negLabel = [
         | 📞 <?= htmlspecialchars($case['lawyer_phone']) ?>
         <?php endif; ?>
         <div style="font-size:.78rem;color:#888;margin-top:4px;">ส่งเมื่อ <?= $case['request_date'] ?> | หมดอายุ <?= $case['expire_date'] ?></div>
+        <?php if ($case['status'] === 'approved'): ?>
+        <a href="/pages/chat.php?request_id=<?= $case['request_id'] ?>"
+           style="display:inline-block;margin-top:8px;padding:5px 14px;background:#1e3a5f;color:#fff;border-radius:6px;text-decoration:none;font-size:.85rem;font-weight:600;">
+            💬 แชทกับทนาย
+        </a>
+        <?php endif; ?>
     </div>
 
     <!-- Case Detail -->

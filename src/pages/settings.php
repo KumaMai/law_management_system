@@ -5,6 +5,7 @@ require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
 require_once '../config/file_upload_helper.php';
+require_once '../config/activity_log_helper.php';
 requireRole('admin');
 
 $pdo      = getDB();
@@ -32,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $pdo->prepare("UPDATE offices SET office_name=?, office_code=?, address=?, phone=?, email=? WHERE office_id=?")
                 ->execute([$officeName, $officeCode ?: null, $address ?: null, $phone ?: null, $email ?: null, $officeId]);
+            audit_log($pdo, $officeId, $userId, 'update', 'office', $officeId, 'อัปเดตข้อมูลสำนักงาน');
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'อัปเดตข้อมูลสำนักงานเรียบร้อยแล้ว']); exit; }
         }
     }
@@ -84,6 +86,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $newHash = password_hash($newPw, PASSWORD_BCRYPT);
                 $pdo->prepare("UPDATE users SET password_hash=? WHERE user_id=?")->execute([$newHash, $userId]);
+                audit_log($pdo, $officeId, $userId, 'update', 'user', $userId, 'Admin เปลี่ยนรหัสผ่านตัวเอง');
             }
         }
         if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>empty($error),'msg'=>$error ?: '✅ เปลี่ยนรหัสผ่านเรียบร้อยแล้ว']); exit; }

@@ -1,3 +1,4 @@
+<?php require_once __DIR__ . '/../config/csrf_helper.php'; ?>
 <!DOCTYPE html>
 <html lang="th">
 <head>

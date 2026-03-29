@@ -32,7 +32,16 @@ function csrf_verify(): void {
 
     $token = $_POST['csrf_token'] ?? '';
     if (empty($token) || !hash_equals(csrf_token(), $token)) {
-        http_response_code(403);
-        die('คำขอไม่ถูกต้อง (CSRF) กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง');
+        // AJAX → JSON error, ปกติ → redirect กลับหน้าเดิม
+        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+            http_response_code(403);
+            header('Content-Type: application/json');
+            die(json_encode(['ok' => false, 'msg' => 'CSRF token ไม่ถูกต้อง กรุณาโหลดหน้าใหม่']));
+        }
+        // regenerate token แล้ว redirect กลับ
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        $back = $_SERVER['REQUEST_URI'] ?? '/pages/dashboard.php';
+        header('Location: ' . $back);
+        exit;
     }
 }

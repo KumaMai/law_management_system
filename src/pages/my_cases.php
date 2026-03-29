@@ -46,12 +46,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($action === 'client_accept') {
             $pdo->prepare("
                 UPDATE contracts SET
-                    negotiation_status     = 'negotiating',
                     contract_review_status = 'negotiating',
                     fee_amount         = COALESCE(proposed_fee, fee_amount),
                     proposed_fee       = NULL,
-                    client_response        = 'ยอมรับเงื่อนไข รอทนายยืนยันสัญญาสุดท้าย',
-                    negotiated_at      = NOW()
+                    client_response        = 'ยอมรับเงื่อนไข รอทนายยืนยันสัญญาสุดท้าย'
                 WHERE contract_id = ?
             ")->execute([$contractId]);
             // แจ้งทนาย
@@ -68,10 +66,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             else {
                 $pdo->prepare("
                     UPDATE contracts SET
-                        negotiation_status     = 'negotiating',
                         contract_review_status = 'negotiating',
-                        client_response        = ?,
-                        negotiated_at      = NOW()
+                        client_response        = ?
                     WHERE contract_id = ?
                 ")->execute([$msg, $contractId]);
                 $lInfo2 = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
@@ -86,10 +82,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = trim($_POST['client_response'] ?? 'ปฏิเสธเงื่อนไข');
             $pdo->prepare("
                 UPDATE contracts SET
-                    negotiation_status     = 'negotiating',
                     contract_review_status = 'negotiating',
-                    client_response        = ?,
-                    negotiated_at      = NOW()
+                    client_response        = ?
                 WHERE contract_id = ?
             ")->execute([$msg, $contractId]);
             $lInfo3 = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
@@ -153,9 +147,8 @@ $stmt = $pdo->prepare("
            lp.specialization, lp.phone AS lawyer_phone,
            con.contract_id, con.contract_date, con.fee_amount,
            con.status AS contract_status,
-           con.payment_status, con.negotiation_status,
+           con.payment_status, con.contract_review_status,
            con.lawyer_note, con.proposed_fee, con.client_response,
-           con.negotiated_at,
            f.filing_id, f.charge, f.scheduled_filing_date,
            (SELECT MAX(ch.case_number) FROM court_hearings ch WHERE ch.filing_id = f.filing_id) AS case_number,
            ct.court_name,
@@ -199,7 +192,7 @@ foreach ($allHearings as $h) {
 }
 
 // นับสัญญาที่รอตอบกลับ
-$pendingNeg = array_filter($cases, fn($c) => ($c['negotiation_status'] ?? '') === 'revision_requested');
+$pendingNeg = array_filter($cases, fn($c) => ($c['contract_review_status'] ?? '') === 'revision_requested');
 
 // ดึง postponement requests ทั้งหมดของลูกความ
 $postponeStmt = $pdo->prepare("
@@ -282,7 +275,7 @@ $negLabel = [
 <?php endif; ?>
 
 <?php foreach ($cases as $case):
-    $negStatus = $case['negotiation_status'] ?? 'accepted';
+    $negStatus = $case['contract_review_status'] ?? 'accepted';
     $negInfo   = $negLabel[$negStatus] ?? $negLabel['accepted'];
     $isRevision = $negStatus === 'revision_requested';
 
@@ -368,11 +361,6 @@ $negLabel = [
         <!-- Status bar -->
         <div style="padding:10px 16px; background:<?= $negInfo['bg'] ?>; color:<?= $negInfo['color'] ?>; font-weight:700; font-size:0.92rem;">
             <?= $negInfo['text'] ?>
-            <?php if ($case['negotiated_at']): ?>
-            <span style="font-weight:400; font-size:0.78rem; margin-left:8px; opacity:.75;">
-                เมื่อ <?= date('d/m/Y H:i', strtotime($case['negotiated_at'])) ?>
-            </span>
-            <?php endif; ?>
         </div>
 
         <div style="padding:14px 16px; background:#fffdf0;">

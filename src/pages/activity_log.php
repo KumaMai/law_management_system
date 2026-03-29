@@ -2,6 +2,7 @@
 session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
+require_once '../config/csrf_helper.php';
 require_once '../config/activity_log_helper.php';
 requireRole('admin');
 

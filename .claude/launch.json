@@ -4,7 +4,7 @@
     {
       "name": "Law Management System (Nginx+PHP)",
       "runtimeExecutable": "docker",
-      "runtimeArgs": ["compose", "up", "-d", "nginx", "php", "db"],
+      "runtimeArgs": ["compose", "up", "nginx", "php", "db"],
       "port": 8181,
       "autoPort": false
     },

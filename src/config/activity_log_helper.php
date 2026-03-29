@@ -64,11 +64,15 @@ function audit_fetch(PDO $pdo, int $officeId, array $filters = [], int $offset =
             WHERE {$whereStr}
             ORDER BY al.created_at DESC
             LIMIT ? OFFSET ?";
-    $params[] = $limit;
-    $params[] = $offset;
 
     $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
+    $i = 1;
+    foreach ($params as $val) {
+        $stmt->bindValue($i++, $val);
+    }
+    $stmt->bindValue($i++, $limit, PDO::PARAM_INT);
+    $stmt->bindValue($i++, $offset, PDO::PARAM_INT);
+    $stmt->execute();
     return $stmt->fetchAll();
 }
 

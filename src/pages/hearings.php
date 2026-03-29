@@ -5,6 +5,7 @@ require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
 require_once '../config/activity_log_helper.php';
+require_once '../config/notification_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -142,6 +143,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
             exit;
         }
     }
+
+    // ---- อนุมัติ/ปฏิเสธคำขอเลื่อนนัดขึ้นศาล ----
+    if (in_array($action, ['approve_postpone', 'reject_postpone'])) {
+        $postponeId = (int)($_POST['postpone_id'] ?? 0);
+        $lawyerNote = trim($_POST['lawyer_note'] ?? '');
+        $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']);
+
+        $ppChk = $pdo->prepare("
+            SELECT pr.*, ch.hearing_date, cp.user_id AS client_user_id
+            FROM postponement_requests pr
+            JOIN court_hearings ch ON pr.reference_id = ch.hearing_id
+            JOIN filings f ON ch.filing_id = f.filing_id
+            JOIN contracts con ON f.contract_id = con.contract_id
+            JOIN case_requests cr ON con.request_id = cr.request_id
+            JOIN client_profiles cp ON pr.client_id = cp.client_id
+            WHERE pr.postpone_id = ? AND pr.request_type = 'hearing'
+              AND pr.status = 'pending' AND cr.office_id = ?
+        ");
+        $ppChk->execute([$postponeId, $officeId]);
+        $ppReq = $ppChk->fetch();
+
+        if (!$ppReq) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบคำขอเลื่อนหรือถูกดำเนินการแล้ว']); exit; }
+        } else {
+            $newStatus = $action === 'approve_postpone' ? 'approved' : 'rejected';
+            $pdo->prepare("UPDATE postponement_requests SET status=?, lawyer_note=? WHERE postpone_id=?")
+                ->execute([$newStatus, $lawyerNote ?: null, $postponeId]);
+
+            if ($newStatus === 'approved' && $ppReq['requested_date']) {
+                $pdo->prepare("UPDATE court_hearings SET hearing_date=? WHERE hearing_id=?")
+                    ->execute([$ppReq['requested_date'], $ppReq['reference_id']]);
+            }
+
+            $statusTH = $newStatus === 'approved' ? 'อนุมัติ' : 'ปฏิเสธ';
+            notif_create($pdo, $officeId, (int)$ppReq['client_user_id'], 'hearing',
+                'คำขอเลื่อนนัดขึ้นศาลถูก'.$statusTH,
+                $lawyerNote ?: 'คำขอเลื่อน #'.$postponeId,
+                '/pages/my_cases.php', 'postponement', $postponeId);
+
+            audit_log($pdo, $officeId, $_SESSION['user_id'], $newStatus === 'approved' ? 'approve' : 'reject',
+                'postponement', $postponeId, $statusTH.'คำขอเลื่อนนัดขึ้นศาล #'.$postponeId);
+
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'✅ '.$statusTH.'คำขอเลื่อนแล้ว']); exit; }
+        }
+        header('Location: /pages/hearings.php'); exit;
+    }
 }
 
 // Fetch hearings
@@ -161,6 +208,28 @@ $stmt  = $pdo->prepare("
 ");
 $stmt->execute([$officeId]);
 $hearings = $stmt->fetchAll();
+
+// ดึงคำขอเลื่อนนัดขึ้นศาล
+$pendingPostponeHearings = [];
+if (in_array($role, ['admin', 'lawyer'])) {
+    $ppStmt = $pdo->prepare("
+        SELECT pr.*, ch.hearing_date, ch.hearing_time, ch.court_room, ch.hearing_round,
+               CONCAT(cp.fname,' ',cp.lname) AS client_name,
+               ct.court_name
+        FROM postponement_requests pr
+        JOIN court_hearings ch ON pr.reference_id = ch.hearing_id AND pr.request_type = 'hearing'
+        JOIN filings f ON ch.filing_id = f.filing_id
+        JOIN contracts con ON f.contract_id = con.contract_id
+        JOIN case_requests cr ON con.request_id = cr.request_id
+        JOIN client_profiles cp ON pr.client_id = cp.client_id
+        LEFT JOIN courts ct ON f.court_id = ct.court_id
+        WHERE cr.office_id = ?
+        ORDER BY pr.status = 'pending' DESC, pr.created_at DESC
+        LIMIT 50
+    ");
+    $ppStmt->execute([$officeId]);
+    $pendingPostponeHearings = $ppStmt->fetchAll();
+}
 
 // Filings dropdown
 $filingsStmt = $pdo->prepare("
@@ -683,5 +752,92 @@ window.addEventListener('DOMContentLoaded', () => {
     <?php endif; ?>
 });
 </script>
+
+<?php if (!empty($pendingPostponeHearings) && in_array($role, ['admin','lawyer'])): ?>
+<!-- ====== คำขอเลื่อนนัดขึ้นศาล ====== -->
+<div class="card" style="margin-top: 28px;">
+    <h3 style="margin-bottom: 14px; color: #1a3a5c;">📆 คำขอเลื่อนนัดขึ้นศาล</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>ลูกความ</th>
+                    <th>ศาล / ครั้งที่</th>
+                    <th>วันเดิม</th>
+                    <th>วันที่ขอเลื่อน</th>
+                    <th>เหตุผล</th>
+                    <th>สถานะ</th>
+                    <th style="width:200px">ดำเนินการ</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($pendingPostponeHearings as $pp):
+                $isPending = $pp['status'] === 'pending';
+                $statusBadge = match($pp['status']) {
+                    'pending'  => '<span style="background:#fef3c7;color:#92400e;padding:2px 10px;border-radius:12px;font-size:.78rem;font-weight:700;">⏳ รอดำเนินการ</span>',
+                    'approved' => '<span style="background:#d1fae5;color:#065f46;padding:2px 10px;border-radius:12px;font-size:.78rem;font-weight:700;">✅ อนุมัติ</span>',
+                    'rejected' => '<span style="background:#fee2e2;color:#991b1b;padding:2px 10px;border-radius:12px;font-size:.78rem;font-weight:700;">❌ ปฏิเสธ</span>',
+                    default    => '<span>'.$pp['status'].'</span>',
+                };
+            ?>
+                <tr style="<?= $isPending ? 'background:#fffbeb;' : '' ?>">
+                    <td style="font-size:.85rem;"><?= htmlspecialchars($pp['client_name']) ?></td>
+                    <td style="font-size:.82rem;"><?= htmlspecialchars($pp['court_name'] ?? '—') ?><br><span style="color:#64748b;">ครั้งที่ <?= (int)$pp['hearing_round'] ?></span></td>
+                    <td style="font-size:.85rem;"><?= $pp['hearing_date'] ? date('d/m/Y', strtotime($pp['hearing_date'])) : '—' ?></td>
+                    <td style="font-size:.85rem; font-weight:600; color:#1e40af;"><?= $pp['requested_date'] ? date('d/m/Y', strtotime($pp['requested_date'])) : '—' ?></td>
+                    <td style="font-size:.82rem; max-width:200px;"><?= htmlspecialchars($pp['reason'] ?? '—') ?></td>
+                    <td><?= $statusBadge ?></td>
+                    <td>
+                        <?php if ($isPending): ?>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <button type="button" class="btn btn-success btn-sm" style="font-size:.78rem;padding:4px 10px;"
+                                onclick='handlePostponeH(<?= $pp["postpone_id"] ?>, "approve_postpone", "อนุมัติคำขอเลื่อนนี้?")'>✔ อนุมัติ</button>
+                            <button type="button" class="btn btn-danger btn-sm" style="font-size:.78rem;padding:4px 10px;"
+                                onclick='handlePostponeH(<?= $pp["postpone_id"] ?>, "reject_postpone", "ปฏิเสธคำขอเลื่อนนี้?")'>✘ ปฏิเสธ</button>
+                        </div>
+                        <?php elseif ($pp['lawyer_note']): ?>
+                        <span style="font-size:.78rem;color:#64748b;"><?= htmlspecialchars($pp['lawyer_note']) ?></span>
+                        <?php else: ?>
+                        <span style="color:#aaa;">—</span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    window.handlePostponeH = function(postponeId, action, confirmMsg) {
+        Swal.fire({
+            title: confirmMsg,
+            input: 'textarea',
+            inputLabel: 'หมายเหตุ (ถ้ามี)',
+            inputPlaceholder: 'ระบุเหตุผล...',
+            showCancelButton: true,
+            confirmButtonText: action === 'approve_postpone' ? '✔ อนุมัติ' : '✘ ปฏิเสธ',
+            cancelButtonText: 'ยกเลิก',
+            confirmButtonColor: action === 'approve_postpone' ? '#16a34a' : '#dc2626',
+        }).then(function(result) {
+            if (result.isConfirmed) {
+                var body = 'action=' + action
+                    + '&postpone_id=' + postponeId
+                    + '&lawyer_note=' + encodeURIComponent(result.value || '')
+                    + '&csrf_token=' + encodeURIComponent(<?= json_encode(csrf_token()) ?>);
+                fetch('/pages/hearings.php', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/x-www-form-urlencoded','X-Requested-With':'XMLHttpRequest'},
+                    body: body
+                }).then(function(r){return r.json();}).then(function(data) {
+                    Swal.fire({icon: data.ok?'success':'error', title: data.ok?'สำเร็จ':'ผิดพลาด', text: data.msg}).then(function(){location.reload();});
+                }).catch(function(){Swal.fire('ผิดพลาด','ไม่สามารถเชื่อมต่อได้','error');});
+            }
+        });
+    };
+});
+</script>
+<?php endif; ?>
 
 <?php include '../includes/footer.php'; ?>

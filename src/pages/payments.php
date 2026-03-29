@@ -426,6 +426,8 @@ if ($role === 'client') {
         JOIN client_profiles cp ON cr.client_id = cp.client_id
         JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
         WHERE cr.client_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
+        AND c.status NOT IN ('rejected','cancelled','terminated')    
+        AND cr.status NOT IN ('rejected','cancelled')               
         ORDER BY c.created_at DESC
     ");
     $contractsStmt->execute([$clientId]);
@@ -444,6 +446,8 @@ if ($role === 'client') {
         JOIN client_profiles cp ON cr.client_id = cp.client_id
         JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
         WHERE cr.lawyer_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
+        AND c.status NOT IN ('rejected','cancelled','terminated')    
+        AND cr.status NOT IN ('rejected','cancelled')               
         ORDER BY c.created_at DESC
     ");
     $contractsStmt->execute([$lawyerId]);
@@ -459,6 +463,8 @@ if ($role === 'client') {
         JOIN client_profiles cp ON cr.client_id = cp.client_id
         JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
         WHERE cr.office_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
+        AND c.status NOT IN ('rejected','cancelled','terminated')    
+        AND cr.status NOT IN ('rejected','cancelled')       
         ORDER BY c.created_at DESC
     ");
     $contractsStmt->execute([$officeId]);

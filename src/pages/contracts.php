@@ -46,10 +46,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("
                 UPDATE contracts SET
                     contract_review_status = 'lawyer_accepted',
-                    negotiation_status     = 'finalized',
                     fee_amount             = COALESCE(?, fee_amount),
-                    lawyer_note            = ?,
-                    negotiated_at          = NOW()
+                    lawyer_note            = ?
                 WHERE contract_id = ?
             ")->execute([$finalFee, $lawyerNote ?: null, $contractId]);
             // แจ้งเตือนลูกความ
@@ -87,11 +85,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("
                     UPDATE contracts SET
                         contract_review_status = 'revision_requested',
-                        negotiation_status     = 'revision_requested',
                         lawyer_note            = ?,
                         proposed_fee           = ?,
-                        client_response        = NULL,
-                        negotiated_at          = NOW()
+                        client_response        = NULL
                     WHERE contract_id = ?
                 ")->execute([$lawyerNote, $proposedFee, $contractId]);
                 $crq2 = $pdo->prepare("SELECT cr.client_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
@@ -127,10 +123,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("
                     UPDATE contracts SET
                         contract_review_status = 'lawyer_rejected',
-                        negotiation_status     = 'lawyer_rejected',
                         status                 = 'terminated',
-                        lawyer_note            = ?,
-                        negotiated_at          = NOW()
+                        lawyer_note            = ?
                     WHERE contract_id = ?
                 ")->execute([$rejectReason, $contractId]);
                 $pdo->prepare("
@@ -164,9 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("
                 UPDATE contracts SET
                     contract_review_status = 'finalized',
-                    negotiation_status     = 'finalized',
-                    fee_amount             = COALESCE(?, fee_amount),
-                    negotiated_at          = NOW()
+                    fee_amount             = COALESCE(?, fee_amount)
                 WHERE contract_id = ?
             ")->execute([$finalFee, $contractId]);
             $crq4 = $pdo->prepare("SELECT cr.client_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
@@ -247,12 +239,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($action === 'client_accept') {
             $pdo->prepare("
                 UPDATE contracts SET
-                    negotiation_status     = 'negotiating',
                     contract_review_status = 'negotiating',
                     fee_amount             = COALESCE(proposed_fee, fee_amount),
                     proposed_fee           = NULL,
-                    client_response        = 'ยอมรับเงื่อนไข รอทนายยืนยันสัญญาสุดท้าย',
-                    negotiated_at          = NOW()
+                    client_response        = 'ยอมรับเงื่อนไข รอทนายยืนยันสัญญาสุดท้าย'
                 WHERE contract_id = ?
             ")->execute([$contractId]);
             $success = '✅ ยอมรับเงื่อนไขแล้ว รอทนายยืนยันสัญญาสุดท้าย';
@@ -262,10 +252,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             else {
                 $pdo->prepare("
                     UPDATE contracts SET
-                        negotiation_status     = 'negotiating',
                         contract_review_status = 'negotiating',
-                        client_response        = ?,
-                        negotiated_at          = NOW()
+                        client_response        = ?
                     WHERE contract_id = ?
                 ")->execute([$msg, $contractId]);
                 $success = '💬 ส่งข้อเสนอโต้กลับแล้ว';
@@ -274,10 +262,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = trim($_POST['client_response'] ?? 'ปฏิเสธเงื่อนไข');
             $pdo->prepare("
                 UPDATE contracts SET
-                    negotiation_status     = 'negotiating',
                     contract_review_status = 'negotiating',
-                    client_response        = ?,
-                    negotiated_at          = NOW()
+                    client_response        = ?
                 WHERE contract_id = ?
             ")->execute([$msg, $contractId]);
             $success = '❌ ส่งการปฏิเสธแล้ว ทนายจะได้รับทราบ';
@@ -527,11 +513,6 @@ include '../includes/header.php';
                 <?php if ($c['proposed_fee']): ?>
                 <div style="margin-top:8px; font-weight:600; color:#856404;">
                     เสนอค่าดำเนินคดีใหม่: <?= number_format($c['proposed_fee'],2) ?> บาท
-                </div>
-                <?php endif; ?>
-                <?php if ($c['negotiated_at']): ?>
-                <div style="font-size:0.75rem; color:#999; margin-top:6px;">
-                    🕐 <?= date('d/m/Y H:i', strtotime($c['negotiated_at'])) ?>
                 </div>
                 <?php endif; ?>
             </div>

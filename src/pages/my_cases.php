@@ -32,7 +32,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contractId = (int)($_POST['contract_id'] ?? 0);
     $action     = $_POST['action'] ?? '';
 
-    // ตรวจสอบว่า contract เป็นของ client คนนี้จริง
+    // ---- ขอเลื่อนวันนัด (ไม่ต้องใช้ contract_id) ----
+    if ($action === 'request_postpone') {
+        $requestType   = $_POST['request_type'] ?? '';   // filing / hearing
+        $referenceId   = (int)($_POST['reference_id'] ?? 0);
+        $reason        = trim($_POST['reason'] ?? '');
+        $requestedDate = $_POST['requested_date'] ?: null;
+
+        if (!in_array($requestType, ['filing','hearing']) || !$referenceId) {
+            $error = 'ข้อมูลไม่ถูกต้อง';
+        } elseif (!$reason) {
+            $error = 'กรุณาระบุเหตุผลที่ขอเลื่อน';
+        } else {
+            // ตรวจ ownership
+            if ($requestType === 'filing') {
+                $own = $pdo->prepare("SELECT f.filing_id FROM filings f JOIN contracts con ON f.contract_id=con.contract_id JOIN case_requests cr ON con.request_id=cr.request_id WHERE f.filing_id=? AND cr.client_id=?");
+            } else {
+                $own = $pdo->prepare("SELECT ch.hearing_id FROM court_hearings ch JOIN filings f ON ch.filing_id=f.filing_id JOIN contracts con ON f.contract_id=con.contract_id JOIN case_requests cr ON con.request_id=cr.request_id WHERE ch.hearing_id=? AND cr.client_id=?");
+            }
+            $own->execute([$referenceId, $clientId]);
+            if (!$own->fetch()) {
+                $error = 'ไม่พบข้อมูลหรือไม่มีสิทธิ์';
+            } else {
+                // ตรวจว่ามี pending request อยู่แล้วหรือเปล่า
+                $dup = $pdo->prepare("SELECT postpone_id FROM postponement_requests WHERE request_type=? AND reference_id=? AND status='pending'");
+                $dup->execute([$requestType, $referenceId]);
+                if ($dup->fetch()) {
+                    $error = 'มีคำขอเลื่อนที่รอดำเนินการอยู่แล้ว';
+                } else {
+                    $pdo->prepare("INSERT INTO postponement_requests (request_type, reference_id, client_id, reason, requested_date, status) VALUES (?, ?, ?, ?, ?, 'pending')")
+                        ->execute([$requestType, $referenceId, $clientId, $reason, $requestedDate]);
+                    audit_log($pdo, $officeId, $userId, 'create', 'postponement', (int)$pdo->lastInsertId(), 'ลูกความขอเลื่อน '.$requestType.' #'.$referenceId);
+                    $success = '📨 ส่งคำขอเลื่อนวันนัดแล้ว ทนายจะได้รับทราบ';
+                }
+            }
+        }
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => empty($error), 'msg' => $error ?: $success]);
+            exit;
+        }
+    }
+
+    // ตรวจสอบว่า contract เป็นของ client คนนี้จริง (สำหรับ action อื่นๆ)
     $chk = $pdo->prepare("
         SELECT c.contract_id FROM contracts c
         JOIN case_requests cr ON c.request_id = cr.request_id
@@ -92,42 +135,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($lwUid3) notif_create($pdo, $officeId, $lwUid3, 'contract', 'ลูกความปฏิเสธเงื่อนไขสัญญา', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
             audit_log($pdo, $officeId, $userId, 'reject', 'contract', $contractId, 'ลูกความปฏิเสธสัญญา #'.$contractId);
             $success = '❌ ส่งการปฏิเสธแล้ว ทนายจะได้รับทราบ';
-        }
-    }
-    // ---- ขอเลื่อนวันนัด ----
-    if ($action === 'request_postpone') {
-        $requestType   = $_POST['request_type'] ?? '';   // filing / hearing
-        $referenceId   = (int)($_POST['reference_id'] ?? 0);
-        $reason        = trim($_POST['reason'] ?? '');
-        $requestedDate = $_POST['requested_date'] ?: null;
-
-        if (!in_array($requestType, ['filing','hearing']) || !$referenceId) {
-            $error = 'ข้อมูลไม่ถูกต้อง';
-        } elseif (!$reason) {
-            $error = 'กรุณาระบุเหตุผลที่ขอเลื่อน';
-        } else {
-            // ตรวจ ownership
-            if ($requestType === 'filing') {
-                $own = $pdo->prepare("SELECT f.filing_id FROM filings f JOIN contracts con ON f.contract_id=con.contract_id JOIN case_requests cr ON con.request_id=cr.request_id WHERE f.filing_id=? AND cr.client_id=?");
-            } else {
-                $own = $pdo->prepare("SELECT ch.hearing_id FROM court_hearings ch JOIN filings f ON ch.filing_id=f.filing_id JOIN contracts con ON f.contract_id=con.contract_id JOIN case_requests cr ON con.request_id=cr.request_id WHERE ch.hearing_id=? AND cr.client_id=?");
-            }
-            $own->execute([$referenceId, $clientId]);
-            if (!$own->fetch()) {
-                $error = 'ไม่พบข้อมูลหรือไม่มีสิทธิ์';
-            } else {
-                // ตรวจว่ามี pending request อยู่แล้วหรือเปล่า
-                $dup = $pdo->prepare("SELECT postpone_id FROM postponement_requests WHERE request_type=? AND reference_id=? AND status='pending'");
-                $dup->execute([$requestType, $referenceId]);
-                if ($dup->fetch()) {
-                    $error = 'มีคำขอเลื่อนที่รอดำเนินการอยู่แล้ว';
-                } else {
-                    $pdo->prepare("INSERT INTO postponement_requests (request_type, reference_id, client_id, reason, requested_date, status) VALUES (?, ?, ?, ?, ?, 'pending')")
-                        ->execute([$requestType, $referenceId, $clientId, $reason, $requestedDate]);
-                    audit_log($pdo, $officeId, $userId, 'create', 'postponement', (int)$pdo->lastInsertId(), 'ลูกความขอเลื่อน '.$requestType.' #'.$referenceId);
-                    $success = '📨 ส่งคำขอเลื่อนวันนัดแล้ว ทนายจะได้รับทราบ';
-                }
-            }
         }
     }
 

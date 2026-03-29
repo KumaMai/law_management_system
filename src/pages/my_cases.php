@@ -159,13 +159,16 @@ $stmt = $pdo->prepare("
            f.filing_id, f.charge, f.scheduled_filing_date,
            (SELECT MAX(ch.case_number) FROM court_hearings ch WHERE ch.filing_id = f.filing_id) AS case_number,
            ct.court_name,
-           v.result AS verdict_result, v.verdict_date
+           v.result AS verdict_result, v.verdict_date,
+           va.scheduled_date AS verdict_appt_date, va.scheduled_time AS verdict_appt_time,
+           va.note AS verdict_appt_note, va.status AS verdict_appt_status
     FROM case_requests cr
     JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
     LEFT JOIN contracts con ON cr.request_id = con.request_id
     LEFT JOIN filings f ON con.contract_id = f.contract_id
     LEFT JOIN courts ct ON f.court_id = ct.court_id
     LEFT JOIN verdicts v ON f.filing_id = v.filing_id
+    LEFT JOIN verdict_appointments va ON f.filing_id = va.filing_id
     WHERE cr.client_id = ?
     ORDER BY cr.created_at DESC
 ");
@@ -575,6 +578,34 @@ $negLabel = [
             </div>
         </div>
         <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- นัดพิพากษา -->
+    <?php if ($case['verdict_appt_date'] && !$case['verdict_result']): ?>
+    <?php
+        $vaDtStr = $case['verdict_appt_date'] . 'T' . ($case['verdict_appt_time'] ? substr($case['verdict_appt_time'],0,5) : '00:00') . ':00';
+        $vaIsPast = strtotime($case['verdict_appt_date']) < strtotime('today');
+    ?>
+    <div style="margin-top:12px;">
+        <div style="padding:12px;background:#fef9c3;border:1px solid #facc15;border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+                <div>
+                    <div style="font-weight:700;color:#854d0e;font-size:.9rem;">⚖️ นัดฟังคำพิพากษา</div>
+                    <div style="font-size:.85rem;color:#713f12;margin-top:4px;">
+                        📅 <?= date('d/m/Y', strtotime($case['verdict_appt_date'])) ?>
+                        <?= $case['verdict_appt_time'] ? ' เวลา '.substr($case['verdict_appt_time'],0,5).' น.' : '' ?>
+                    </div>
+                    <?php if ($case['verdict_appt_note']): ?>
+                    <div style="font-size:.8rem;color:#92400e;margin-top:3px;">
+                        📝 <?= htmlspecialchars(mb_substr($case['verdict_appt_note'], 0, 100)) ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <div class="countdown-pill <?= $vaIsPast ? 'overdue' : '' ?>"
+                     data-datetime="<?= $vaDtStr ?>">กำลังคำนวณ...</div>
+            </div>
+        </div>
     </div>
     <?php endif; ?>
 

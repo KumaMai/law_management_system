@@ -197,7 +197,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var chatMessages = document.getElementById('chatMessages');
     var chatInput = document.getElementById('chatInput');
     var pollTimer = null;
-    var lastCount = 0;
+    var lastCount = -1;
 
     function loadMessages() {
         fetch('/pages/chat.php?ajax=messages&conversation_id=' + convId)
@@ -209,9 +209,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         lastCount = data.count;
                         chatMessages.scrollTop = chatMessages.scrollHeight;
                     }
+                } else {
+                    chatMessages.innerHTML = '<div style="text-align:center;color:#ef4444;padding:40px;">' + (data.msg || 'เกิดข้อผิดพลาด') + '</div>';
                 }
             })
-            .catch(function() {});
+            .catch(function() {
+                chatMessages.innerHTML = '<div style="text-align:center;color:#ef4444;padding:40px;">ไม่สามารถเชื่อมต่อได้</div>';
+            });
     }
 
     window.sendMsg = function(e) {

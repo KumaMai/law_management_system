@@ -32,75 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $contractId = (int)($_POST['contract_id'] ?? 0);
     $action     = $_POST['action'] ?? '';
 
-    // ตรวจสอบว่า contract เป็นของ client คนนี้จริง
-    $chk = $pdo->prepare("
-        SELECT c.contract_id FROM contracts c
-        JOIN case_requests cr ON c.request_id = cr.request_id
-        WHERE c.contract_id = ? AND cr.client_id = ?
-    ");
-    $chk->execute([$contractId, $clientId]);
-
-    if (!$chk->fetch()) {
-        $error = 'ไม่พบสัญญาหรือไม่มีสิทธิ์ดำเนินการ';
-    } else {
-        if ($action === 'client_accept') {
-            $pdo->prepare("
-                UPDATE contracts SET
-                    negotiation_status     = 'negotiating',
-                    contract_review_status = 'negotiating',
-                    fee_amount         = COALESCE(proposed_fee, fee_amount),
-                    proposed_fee       = NULL,
-                    client_response        = 'ยอมรับเงื่อนไข รอทนายยืนยันสัญญาสุดท้าย',
-                    negotiated_at      = NOW()
-                WHERE contract_id = ?
-            ")->execute([$contractId]);
-            // แจ้งทนาย
-            $lInfo = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
-            $lInfo->execute([$contractId]); $lid = $lInfo->fetchColumn();
-            $lwUid = $lid ? notif_get_user_id_by_lawyer($pdo, (int)$lid) : null;
-            if ($lwUid) notif_create($pdo, $officeId, $lwUid, 'contract', 'ลูกความยอมรับเงื่อนไขสัญญา', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
-            audit_log($pdo, $officeId, $userId, 'approve', 'contract', $contractId, 'ลูกความยอมรับเงื่อนไขสัญญา #'.$contractId);
-            $success = '✅ ยอมรับเงื่อนไขแล้ว รอทนายยืนยันสัญญาสุดท้าย';
-
-        } elseif ($action === 'client_counter') {
-            $msg = trim($_POST['client_response'] ?? '');
-            if (!$msg) { $error = 'กรุณาระบุข้อเสนอของคุณ'; }
-            else {
-                $pdo->prepare("
-                    UPDATE contracts SET
-                        negotiation_status     = 'negotiating',
-                        contract_review_status = 'negotiating',
-                        client_response        = ?,
-                        negotiated_at      = NOW()
-                    WHERE contract_id = ?
-                ")->execute([$msg, $contractId]);
-                $lInfo2 = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
-                $lInfo2->execute([$contractId]); $lid2 = $lInfo2->fetchColumn();
-                $lwUid2 = $lid2 ? notif_get_user_id_by_lawyer($pdo, (int)$lid2) : null;
-                if ($lwUid2) notif_create($pdo, $officeId, $lwUid2, 'contract', 'ลูกความส่งข้อเสนอโต้กลับ', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
-                audit_log($pdo, $officeId, $userId, 'update', 'contract', $contractId, 'ลูกความโต้กลับสัญญา #'.$contractId);
-                $success = '💬 ส่งข้อเสนอโต้กลับแล้ว';
-            }
-
-        } elseif ($action === 'client_reject') {
-            $msg = trim($_POST['client_response'] ?? 'ปฏิเสธเงื่อนไข');
-            $pdo->prepare("
-                UPDATE contracts SET
-                    negotiation_status     = 'negotiating',
-                    contract_review_status = 'negotiating',
-                    client_response        = ?,
-                    negotiated_at      = NOW()
-                WHERE contract_id = ?
-            ")->execute([$msg, $contractId]);
-            $lInfo3 = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
-            $lInfo3->execute([$contractId]); $lid3 = $lInfo3->fetchColumn();
-            $lwUid3 = $lid3 ? notif_get_user_id_by_lawyer($pdo, (int)$lid3) : null;
-            if ($lwUid3) notif_create($pdo, $officeId, $lwUid3, 'contract', 'ลูกความปฏิเสธเงื่อนไขสัญญา', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
-            audit_log($pdo, $officeId, $userId, 'reject', 'contract', $contractId, 'ลูกความปฏิเสธสัญญา #'.$contractId);
-            $success = '❌ ส่งการปฏิเสธแล้ว ทนายจะได้รับทราบ';
-        }
-    }
-    // ---- ขอเลื่อนวันนัด ----
+    // ---- ขอเลื่อนวันนัด (ไม่ต้องใช้ contract_id) ----
     if ($action === 'request_postpone') {
         $requestType   = $_POST['request_type'] ?? '';   // filing / hearing
         $referenceId   = (int)($_POST['reference_id'] ?? 0);
@@ -135,6 +67,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         }
+
+        if ($isAjax) {
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => empty($error), 'msg' => $error ?: $success]);
+            exit;
+        }
+    }
+
+    // ตรวจสอบว่า contract เป็นของ client คนนี้จริง (สำหรับ action อื่นๆ)
+    $chk = $pdo->prepare("
+        SELECT c.contract_id FROM contracts c
+        JOIN case_requests cr ON c.request_id = cr.request_id
+        WHERE c.contract_id = ? AND cr.client_id = ?
+    ");
+    $chk->execute([$contractId, $clientId]);
+
+    if (!$chk->fetch()) {
+        $error = 'ไม่พบสัญญาหรือไม่มีสิทธิ์ดำเนินการ';
+    } else {
+        if ($action === 'client_accept') {
+            $pdo->prepare("
+                UPDATE contracts SET
+                    contract_review_status = 'negotiating',
+                    fee_amount         = COALESCE(proposed_fee, fee_amount),
+                    proposed_fee       = NULL,
+                    client_response        = 'ยอมรับเงื่อนไข รอทนายยืนยันสัญญาสุดท้าย'
+                WHERE contract_id = ?
+            ")->execute([$contractId]);
+            // แจ้งทนาย
+            $lInfo = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+            $lInfo->execute([$contractId]); $lid = $lInfo->fetchColumn();
+            $lwUid = $lid ? notif_get_user_id_by_lawyer($pdo, (int)$lid) : null;
+            if ($lwUid) notif_create($pdo, $officeId, $lwUid, 'contract', 'ลูกความยอมรับเงื่อนไขสัญญา', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
+            audit_log($pdo, $officeId, $userId, 'approve', 'contract', $contractId, 'ลูกความยอมรับเงื่อนไขสัญญา #'.$contractId);
+            $success = '✅ ยอมรับเงื่อนไขแล้ว รอทนายยืนยันสัญญาสุดท้าย';
+
+        } elseif ($action === 'client_counter') {
+            $msg = trim($_POST['client_response'] ?? '');
+            if (!$msg) { $error = 'กรุณาระบุข้อเสนอของคุณ'; }
+            else {
+                $pdo->prepare("
+                    UPDATE contracts SET
+                        contract_review_status = 'negotiating',
+                        client_response        = ?
+                    WHERE contract_id = ?
+                ")->execute([$msg, $contractId]);
+                $lInfo2 = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+                $lInfo2->execute([$contractId]); $lid2 = $lInfo2->fetchColumn();
+                $lwUid2 = $lid2 ? notif_get_user_id_by_lawyer($pdo, (int)$lid2) : null;
+                if ($lwUid2) notif_create($pdo, $officeId, $lwUid2, 'contract', 'ลูกความส่งข้อเสนอโต้กลับ', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
+                audit_log($pdo, $officeId, $userId, 'update', 'contract', $contractId, 'ลูกความโต้กลับสัญญา #'.$contractId);
+                $success = '💬 ส่งข้อเสนอโต้กลับแล้ว';
+            }
+
+        } elseif ($action === 'client_reject') {
+            $msg = trim($_POST['client_response'] ?? 'ปฏิเสธเงื่อนไข');
+            $pdo->prepare("
+                UPDATE contracts SET
+                    contract_review_status = 'negotiating',
+                    client_response        = ?
+                WHERE contract_id = ?
+            ")->execute([$msg, $contractId]);
+            $lInfo3 = $pdo->prepare("SELECT cr.lawyer_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+            $lInfo3->execute([$contractId]); $lid3 = $lInfo3->fetchColumn();
+            $lwUid3 = $lid3 ? notif_get_user_id_by_lawyer($pdo, (int)$lid3) : null;
+            if ($lwUid3) notif_create($pdo, $officeId, $lwUid3, 'contract', 'ลูกความปฏิเสธเงื่อนไขสัญญา', 'สัญญา #'.$contractId, '/pages/contracts.php', 'contract', $contractId);
+            audit_log($pdo, $officeId, $userId, 'reject', 'contract', $contractId, 'ลูกความปฏิเสธสัญญา #'.$contractId);
+            $success = '❌ ส่งการปฏิเสธแล้ว ทนายจะได้รับทราบ';
+        }
     }
 
     if ($isAjax) {
@@ -153,19 +154,21 @@ $stmt = $pdo->prepare("
            lp.specialization, lp.phone AS lawyer_phone,
            con.contract_id, con.contract_date, con.fee_amount,
            con.status AS contract_status,
-           con.payment_status, con.negotiation_status,
+           con.payment_status, con.contract_review_status,
            con.lawyer_note, con.proposed_fee, con.client_response,
-           con.negotiated_at,
            f.filing_id, f.charge, f.scheduled_filing_date,
            (SELECT MAX(ch.case_number) FROM court_hearings ch WHERE ch.filing_id = f.filing_id) AS case_number,
            ct.court_name,
-           v.result AS verdict_result, v.verdict_date
+           v.result AS verdict_result, v.verdict_date,
+           va.scheduled_date AS verdict_appt_date, va.scheduled_time AS verdict_appt_time,
+           va.note AS verdict_appt_note, va.status AS verdict_appt_status
     FROM case_requests cr
     JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
     LEFT JOIN contracts con ON cr.request_id = con.request_id
     LEFT JOIN filings f ON con.contract_id = f.contract_id
     LEFT JOIN courts ct ON f.court_id = ct.court_id
     LEFT JOIN verdicts v ON f.filing_id = v.filing_id
+    LEFT JOIN verdict_appointments va ON f.filing_id = va.filing_id
     WHERE cr.client_id = ?
     ORDER BY cr.created_at DESC
 ");
@@ -199,7 +202,7 @@ foreach ($allHearings as $h) {
 }
 
 // นับสัญญาที่รอตอบกลับ
-$pendingNeg = array_filter($cases, fn($c) => ($c['negotiation_status'] ?? '') === 'revision_requested');
+$pendingNeg = array_filter($cases, fn($c) => ($c['contract_review_status'] ?? '') === 'revision_requested');
 
 // ดึง postponement requests ทั้งหมดของลูกความ
 $postponeStmt = $pdo->prepare("
@@ -282,7 +285,7 @@ $negLabel = [
 <?php endif; ?>
 
 <?php foreach ($cases as $case):
-    $negStatus = $case['negotiation_status'] ?? 'accepted';
+    $negStatus = $case['contract_review_status'] ?? 'accepted';
     $negInfo   = $negLabel[$negStatus] ?? $negLabel['accepted'];
     $isRevision = $negStatus === 'revision_requested';
 
@@ -368,11 +371,6 @@ $negLabel = [
         <!-- Status bar -->
         <div style="padding:10px 16px; background:<?= $negInfo['bg'] ?>; color:<?= $negInfo['color'] ?>; font-weight:700; font-size:0.92rem;">
             <?= $negInfo['text'] ?>
-            <?php if ($case['negotiated_at']): ?>
-            <span style="font-weight:400; font-size:0.78rem; margin-left:8px; opacity:.75;">
-                เมื่อ <?= date('d/m/Y H:i', strtotime($case['negotiated_at'])) ?>
-            </span>
-            <?php endif; ?>
         </div>
 
         <div style="padding:14px 16px; background:#fffdf0;">
@@ -580,6 +578,34 @@ $negLabel = [
             </div>
         </div>
         <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- นัดพิพากษา -->
+    <?php if ($case['verdict_appt_date'] && !$case['verdict_result']): ?>
+    <?php
+        $vaDtStr = $case['verdict_appt_date'] . 'T' . ($case['verdict_appt_time'] ? substr($case['verdict_appt_time'],0,5) : '00:00') . ':00';
+        $vaIsPast = strtotime($case['verdict_appt_date']) < strtotime('today');
+    ?>
+    <div style="margin-top:12px;">
+        <div style="padding:12px;background:#fef9c3;border:1px solid #facc15;border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+                <div>
+                    <div style="font-weight:700;color:#854d0e;font-size:.9rem;">⚖️ นัดฟังคำพิพากษา</div>
+                    <div style="font-size:.85rem;color:#713f12;margin-top:4px;">
+                        📅 <?= date('d/m/Y', strtotime($case['verdict_appt_date'])) ?>
+                        <?= $case['verdict_appt_time'] ? ' เวลา '.substr($case['verdict_appt_time'],0,5).' น.' : '' ?>
+                    </div>
+                    <?php if ($case['verdict_appt_note']): ?>
+                    <div style="font-size:.8rem;color:#92400e;margin-top:3px;">
+                        📝 <?= htmlspecialchars(mb_substr($case['verdict_appt_note'], 0, 100)) ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <div class="countdown-pill <?= $vaIsPast ? 'overdue' : '' ?>"
+                     data-datetime="<?= $vaDtStr ?>">กำลังคำนวณ...</div>
+            </div>
+        </div>
     </div>
     <?php endif; ?>
 

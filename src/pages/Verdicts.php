@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -71,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
               AND status NOT IN ('completed','terminated')
         ")->execute([$filingId]);
 
+        audit_log($pdo, $officeId, $userId, $existVerdict ? 'update' : 'create', 'verdict', $filingId, 'บันทึกคำพิพากษา filing #'.$filingId.' — '.($winner === 'plaintiff' ? 'โจทก์ชนะ' : 'จำเลยชนะ'));
         $success = '⚖️ บันทึกคำพิพากษาแล้ว — '
             . ($winner === 'plaintiff' ? '✅ โจทก์ชนะ' : '✅ จำเลยชนะ')
             . ' — คดีปิดแล้ว';

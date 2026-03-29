@@ -433,6 +433,222 @@ body.auth-page {
 }
 
 /* ----------------------------------------------------------
+   18. TOPBAR + NOTIFICATION BELL
+   ---------------------------------------------------------- */
+.topbar {
+    position: fixed; top: 0; right: 0;
+    left: var(--sb-init-ml, 220px);
+    height: 48px; z-index: 90;
+    display: flex; align-items: center; justify-content: flex-end;
+    padding: 0 20px;
+    background: rgba(248,250,252,.85);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid #e2e8f0;
+    transition: left .25s ease;
+}
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.notif-bell-wrap { position: relative; }
+.notif-bell-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 1.2rem; padding: 6px 8px; border-radius: 8px;
+    position: relative; transition: .15s;
+}
+.notif-bell-btn:hover { background: #e2e8f0; }
+.notif-bell-badge {
+    position: absolute; top: 2px; right: 2px;
+    background: #dc2626; color: #fff;
+    font-size: .55rem; font-weight: 800;
+    min-width: 16px; height: 16px;
+    border-radius: 10px; padding: 0 4px;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
+}
+.notif-dropdown {
+    display: none; position: absolute; top: calc(100% + 6px); right: 0;
+    width: 340px; max-height: 420px;
+    background: #fff; border: 1px solid #e2e8f0;
+    border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.15);
+    z-index: 200; overflow: hidden;
+}
+.notif-dropdown.show { display: block; }
+.notif-dd-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; border-bottom: 1px solid #e2e8f0;
+    font-size: .85rem;
+}
+.notif-dd-header a { color: #2563eb; font-size: .78rem; text-decoration: none; }
+.notif-dd-header a:hover { text-decoration: underline; }
+.notif-dd-list { max-height: 320px; overflow-y: auto; }
+.notif-item {
+    display: flex; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid #f1f5f9; text-decoration: none;
+    transition: .1s; color: inherit;
+}
+.notif-item:hover { background: #f8fafc; }
+.notif-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 2px; }
+.notif-body { flex: 1; min-width: 0; }
+.notif-title { font-size: .8rem; font-weight: 600; color: #1e293b; line-height: 1.3; }
+.notif-time { font-size: .68rem; color: #94a3b8; margin-top: 2px; }
+.notif-dd-footer {
+    display: block; text-align: center; padding: 10px;
+    font-size: .8rem; color: #2563eb; border-top: 1px solid #e2e8f0;
+    text-decoration: none; font-weight: 600;
+}
+.notif-dd-footer:hover { background: #f8fafc; }
+
+/* Topbar offsets main content */
+.sb-main { padding-top: 62px; }
+
+@media (max-width: 768px) {
+    .topbar { left: 0 !important; }
+}
+
+/* ----------------------------------------------------------
+   19. NOTIFICATION PAGE
+   ---------------------------------------------------------- */
+.notif-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px; border-bottom: 1px solid #f1f5f9;
+    text-decoration: none; color: inherit; transition: .1s;
+    position: relative;
+}
+.notif-row:hover { background: #f8fafc; }
+.notif-row:last-child { border-bottom: none; }
+.notif-unread { background: #f0f9ff; }
+.notif-row-icon { font-size: 1.3rem; flex-shrink: 0; }
+.notif-row-content { flex: 1; min-width: 0; }
+.notif-row-title { font-size: .85rem; font-weight: 600; color: #1e293b; }
+.notif-row-body { font-size: .78rem; color: #64748b; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notif-row-time { font-size: .72rem; color: #94a3b8; white-space: nowrap; flex-shrink: 0; }
+.notif-dot {
+    width: 8px; height: 8px; background: #2563eb;
+    border-radius: 50%; flex-shrink: 0;
+}
+
+/* ----------------------------------------------------------
+   20. CALENDAR
+   ---------------------------------------------------------- */
+.cal-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.cal-th {
+    padding: 10px 4px; text-align: center;
+    background: #1a3a5c; color: #fff;
+    font-size: .78rem; font-weight: 600;
+}
+.cal-cell {
+    vertical-align: top; padding: 6px; height: 100px;
+    border: 1px solid #e2e8f0; background: #fff;
+    font-size: .78rem;
+}
+.cal-cell:hover { background: #f8fafc; }
+.cal-empty { background: #f8fafc; }
+.cal-today { background: #eff6ff !important; }
+.cal-day-num { font-weight: 700; color: #475569; margin-bottom: 4px; font-size: .8rem; }
+.cal-day-today {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #1a3a5c; color: #fff;
+}
+.cal-event {
+    padding: 2px 4px; margin-bottom: 2px;
+    background: #f8fafc; border-radius: 3px;
+    overflow: hidden; white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.cal-event-link { text-decoration: none; color: inherit; display: block; }
+.cal-event-label { font-size: .6rem; color: #64748b; }
+.cal-event-title { font-size: .68rem; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; }
+.cal-more { font-size: .65rem; color: #2563eb; cursor: pointer; padding: 1px 4px; }
+
+@media (max-width: 768px) {
+    .cal-cell { height: 70px; padding: 3px; }
+    .cal-event { display: none; }
+    .cal-day-num { font-size: .72rem; }
+}
+
+/* ----------------------------------------------------------
+   21. CHAT
+   ---------------------------------------------------------- */
+.chat-container {
+    display: flex; height: calc(100vh - 160px);
+    background: #fff; border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.1); overflow: hidden;
+}
+.chat-sidebar {
+    width: 280px; min-width: 280px;
+    border-right: 1px solid #e2e8f0;
+    overflow-y: auto; background: #f8fafc;
+}
+.chat-conv-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; border-bottom: 1px solid #f1f5f9;
+    text-decoration: none; color: inherit; transition: .1s;
+}
+.chat-conv-item:hover { background: #eff6ff; }
+.chat-conv-active { background: #dbeafe !important; }
+.chat-conv-avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    object-fit: cover; flex-shrink: 0;
+}
+.chat-conv-avatar-ph {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: #e2e8f0; display: flex; align-items: center;
+    justify-content: center; font-size: 1rem; flex-shrink: 0;
+}
+.chat-conv-info { flex: 1; min-width: 0; overflow: hidden; }
+.chat-conv-name { font-size: .82rem; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-conv-preview { font-size: .72rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.chat-conv-badge {
+    background: #dc2626; color: #fff; font-size: .6rem; font-weight: 800;
+    min-width: 18px; height: 18px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 5px; flex-shrink: 0;
+}
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat-header {
+    padding: 12px 16px; border-bottom: 1px solid #e2e8f0;
+    display: flex; align-items: center; gap: 8px;
+    background: #fff; font-size: .9rem;
+}
+.chat-back-btn { display: none; background: none; border: none; cursor: pointer; font-size: 1rem; padding: 4px 8px; }
+.chat-messages {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: flex; flex-direction: column; gap: 8px;
+    background: #f8fafc;
+}
+.chat-msg { max-width: 75%; }
+.chat-msg-mine { align-self: flex-end; text-align: right; }
+.chat-msg-other { align-self: flex-start; }
+.chat-msg-name { font-size: .68rem; color: #64748b; margin-bottom: 2px; }
+.chat-msg-bubble {
+    display: inline-block; padding: 8px 14px;
+    border-radius: 14px; font-size: .84rem;
+    line-height: 1.4; word-break: break-word;
+    text-align: left;
+}
+.chat-msg-mine .chat-msg-bubble { background: #1a3a5c; color: #fff; border-bottom-right-radius: 4px; }
+.chat-msg-other .chat-msg-bubble { background: #e2e8f0; color: #1e293b; border-bottom-left-radius: 4px; }
+.chat-msg-time { font-size: .62rem; color: #94a3b8; margin-top: 2px; }
+.chat-input-area { padding: 12px 16px; border-top: 1px solid #e2e8f0; background: #fff; }
+.chat-input-area form { display: flex; gap: 8px; }
+.chat-input-area input {
+    flex: 1; padding: 10px 14px; border: 1px solid #e2e8f0;
+    border-radius: 20px; font-size: .85rem; outline: none;
+    font-family: inherit;
+}
+.chat-input-area input:focus { border-color: #1a3a5c; }
+.chat-empty {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: #94a3b8; font-size: .9rem;
+}
+
+@media (max-width: 768px) {
+    .chat-container { flex-direction: column; height: calc(100vh - 120px); }
+    .chat-sidebar { width: 100%; min-width: 100%; max-height: 200px; border-right: none; border-bottom: 1px solid #e2e8f0; }
+    .chat-back-btn { display: inline-block; }
+}
+
+/* ----------------------------------------------------------
    15. ANIMATIONS
    ---------------------------------------------------------- */
 @keyframes fadeIn {

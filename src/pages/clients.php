@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/activity_log_helper.php';
 requireRole('admin');
 
 $pdo      = getDB();
@@ -59,6 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("INSERT INTO client_profiles (user_id, fname, lname, citizen_id, phone, address) VALUES (?, ?, ?, ?, ?, ?)")
                     ->execute([$newUserId, $fname, $lname, $citizenId ?: null, $phone, $address]);
                 $pdo->commit();
+                audit_log($pdo, $officeId, $_SESSION['user_id'], 'create', 'client', (int)$newUserId, 'เพิ่มลูกความ '.$fname.' '.$lname);
                 if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'เพิ่มลูกความเรียบร้อยแล้ว']); exit; }
             } catch (Exception $e) {
                 $pdo->rollBack();
@@ -108,6 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE users SET email=?, username=? WHERE user_id=?")
                     ->execute([$email, $username, $ownerRow['user_id']]);
             }
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'update', 'client', $clientId, 'แก้ไขข้อมูลลูกความ #'.$clientId);
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'แก้ไขข้อมูลลูกความเรียบร้อยแล้ว']); exit; }
         }
     }
@@ -123,6 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>false,'msg'=>'ไม่พบลูกความหรือไม่มีสิทธิ์']); exit; }
         } else {
             $pdo->prepare("UPDATE users SET status=? WHERE user_id=?")->execute([$newStatus, $ownerRow['user_id']]);
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'update', 'client', $clientId, ($newStatus==='active'?'เปิดใช้งาน':'ระงับ').'บัญชีลูกความ #'.$clientId);
             $msg = $newStatus === 'active' ? '✅ เปิดใช้งานบัญชีลูกความแล้ว' : '🔒 ระงับบัญชีลูกความแล้ว';
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>$msg]); exit; }
         }
@@ -147,6 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("DELETE FROM client_profiles WHERE client_id=?")->execute([$clientId]);
                     $pdo->prepare("DELETE FROM users WHERE user_id=?")->execute([$ownerRow['user_id']]);
                     $pdo->commit();
+                    audit_log($pdo, $officeId, $_SESSION['user_id'], 'delete', 'client', $clientId, 'ลบบัญชีลูกความ #'.$clientId);
                     if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบบัญชีลูกความเรียบร้อยแล้ว']); exit; }
                 } catch (Exception $e) {
                     $pdo->rollBack();

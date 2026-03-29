@@ -5,6 +5,7 @@ require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
 require_once '../config/file_upload_helper.php';
+require_once '../config/activity_log_helper.php';
 requireRole('admin');
 
 $pdo      = getDB();
@@ -65,6 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("INSERT INTO lawyer_profiles (user_id, fname, lname, license_no, license_exp, specialization, phone, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')")
                     ->execute([$newUserId, $fname, $lname, $licenseNo ?: null, $licenseExp ?: null, $specialization, $phone]);
                 $pdo->commit();
+                audit_log($pdo, $officeId, $_SESSION['user_id'], 'create', 'lawyer', (int)$newUserId, 'เพิ่มทนายความ '.$fname.' '.$lname);
                 if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'เพิ่มทนายความเรียบร้อยแล้ว']); exit; }
             } catch (Exception $e) {
                 $pdo->rollBack();
@@ -113,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE users SET email=?, username=? WHERE user_id=?")
                     ->execute([$email, $username, $ownerRow['user_id']]);
             }
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'update', 'lawyer', $lawyerId, 'แก้ไขข้อมูลทนาย #'.$lawyerId);
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'แก้ไขข้อมูลทนายเรียบร้อยแล้ว']); exit; }
         }
     }
@@ -129,6 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $pdo->prepare("UPDATE lawyer_profiles SET status=? WHERE lawyer_id=?")->execute([$newStatus, $lawyerId]);
             $pdo->prepare("UPDATE users SET status=? WHERE user_id=?")->execute([$newStatus, $ownerRow['user_id']]);
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'update', 'lawyer', $lawyerId, ($newStatus==='active'?'เปิดใช้งาน':'ระงับ').'บัญชีทนาย #'.$lawyerId);
             $msg = $newStatus === 'active' ? '✅ เปิดใช้งานบัญชีทนายแล้ว' : '🔒 ระงับบัญชีทนายแล้ว';
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>$msg]); exit; }
         }
@@ -153,6 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->prepare("DELETE FROM lawyer_profiles WHERE lawyer_id=?")->execute([$lawyerId]);
                     $pdo->prepare("DELETE FROM users WHERE user_id=?")->execute([$ownerRow['user_id']]);
                     $pdo->commit();
+                    audit_log($pdo, $officeId, $_SESSION['user_id'], 'delete', 'lawyer', $lawyerId, 'ลบบัญชีทนาย #'.$lawyerId);
                     if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ลบบัญชีทนายเรียบร้อยแล้ว']); exit; }
                 } catch (Exception $e) {
                     $pdo->rollBack();

@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -42,19 +43,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
                 $msg = ['ok'=>false,'msg'=>'ไม่พบคดีหรือไม่มีสิทธิ์'];
             } else {
                 if ($appointId) {
-                    // แก้ไข
                     $pdo->prepare("
                         UPDATE verdict_appointments
                         SET scheduled_date=?, scheduled_time=?, note=?, status='scheduled'
                         WHERE appointment_id=? AND filing_id=?
                     ")->execute([$date, $time, $note ?: null, $appointId, $filingId]);
+                    audit_log($pdo, $officeId, $userId, 'update', 'verdict_appointment', $appointId, 'แก้ไขนัดพิพากษา #'.$appointId);
                     $msg = ['ok'=>true,'msg'=>'แก้ไขนัดวันพิพากษาเรียบร้อยแล้ว'];
                 } else {
-                    // เพิ่มใหม่
                     $pdo->prepare("
                         INSERT INTO verdict_appointments (filing_id, scheduled_date, scheduled_time, note, status, created_by)
                         VALUES (?, ?, ?, ?, 'scheduled', ?)
                     ")->execute([$filingId, $date, $time, $note ?: null, $userId]);
+                    $newVaId = (int)$pdo->lastInsertId();
+                    audit_log($pdo, $officeId, $userId, 'create', 'verdict_appointment', $newVaId, 'เพิ่มนัดพิพากษาใหม่ filing #'.$filingId);
                     $msg = ['ok'=>true,'msg'=>'เพิ่มนัดวันพิพากษาเรียบร้อยแล้ว'];
                 }
             }
@@ -85,6 +87,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
             } else {
                 $pdo->prepare("UPDATE verdict_appointments SET status=? WHERE appointment_id=?")
                     ->execute([$newStatus, $appointId]);
+                audit_log($pdo, $officeId, $userId, 'update', 'verdict_appointment', $appointId, 'เปลี่ยนสถานะนัดพิพากษา #'.$appointId.' เป็น '.$newStatus);
                 $statusTH = ['scheduled'=>'นัดไว้','completed'=>'เสร็จสิ้น','postponed'=>'เลื่อนนัด','cancelled'=>'ยกเลิก'];
                 $msg = ['ok'=>true,'msg'=>'เปลี่ยนสถานะเป็น "' . ($statusTH[$newStatus] ?? $newStatus) . '" แล้ว'];
             }
@@ -107,6 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
             $msg = ['ok'=>false,'msg'=>'ไม่พบนัดหรือไม่มีสิทธิ์'];
         } else {
             $pdo->prepare("DELETE FROM verdict_appointments WHERE appointment_id=?")->execute([$appointId]);
+            audit_log($pdo, $officeId, $userId, 'delete', 'verdict_appointment', $appointId, 'ลบนัดพิพากษา #'.$appointId);
             $msg = ['ok'=>true,'msg'=>'ลบนัดเรียบร้อยแล้ว'];
         }
         if ($isAjax) { header('Content-Type: application/json'); echo json_encode($msg); exit; }

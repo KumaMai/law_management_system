@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Law Management System (Nginx+PHP)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "-d", "nginx", "php", "db"],
+      "port": 8181,
+      "autoPort": false
+    },
+    {
+      "name": "phpMyAdmin",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "-d", "phpmyadmin"],
+      "port": 8081,
+      "autoPort": false
+    }
+  ]
+}

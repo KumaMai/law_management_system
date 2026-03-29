@@ -4,6 +4,7 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -30,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
         $check->execute([$delId, $officeId]);
         if ($check->fetch()) {
             $pdo->prepare("DELETE FROM court_hearings WHERE hearing_id = ?")->execute([$delId]);
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'delete', 'hearing', $delId, 'ลบนัดขึ้นศาล #'.$delId);
         }
         header("Location: /pages/hearings.php" . ($filingId ? "?filing_id=$filingId" : ''));
         exit;
@@ -88,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
             }
         }
         if (!$success) $error = 'สถานะไม่ถูกต้อง';
+        if ($success) audit_log($pdo, $officeId, $_SESSION['user_id'], 'update', 'hearing', $hId, 'อัปเดตสถานะนัดขึ้นศาล #'.$hId.' เป็น '.$newStatus);
 
         if ($isAjax) {
             header('Content-Type: application/json');
@@ -126,6 +129,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
                 (int)$_POST['hearing_round'],
                 trim($_POST['notes'] ?? ''),
             ]);
+
+            $newHid = (int)$pdo->lastInsertId();
+            audit_log($pdo, $officeId, $_SESSION['user_id'], 'create', 'hearing', $newHid, 'เพิ่มนัดขึ้นศาลใหม่ filing #'.(int)$_POST['filing_id']);
 
             if ($isAjax) {
                 header('Content-Type: application/json');

@@ -4,6 +4,8 @@ session_start();
 require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
+require_once '../config/notification_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -50,6 +52,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     negotiated_at          = NOW()
                 WHERE contract_id = ?
             ")->execute([$finalFee, $lawyerNote ?: null, $contractId]);
+            // แจ้งเตือนลูกความ
+            $crq = $pdo->prepare("SELECT cr.client_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+            $crq->execute([$contractId]); $cid = $crq->fetchColumn();
+            $cUid = $cid ? notif_get_user_id_by_client($pdo, (int)$cid) : null;
+            if ($cUid) notif_create($pdo, $officeId, $cUid, 'contract', 'ทนายยืนยันรับสัญญาแล้ว', 'สัญญา #'.$contractId, '/pages/my_cases.php', 'contract', $contractId);
+            audit_log($pdo, $officeId, $userId, 'approve', 'contract', $contractId, 'ทนายยืนยันรับสัญญา #'.$contractId);
             $success = '✅ ยืนยันรับสัญญาแล้ว';
         }
     }
@@ -86,6 +94,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         negotiated_at          = NOW()
                     WHERE contract_id = ?
                 ")->execute([$lawyerNote, $proposedFee, $contractId]);
+                $crq2 = $pdo->prepare("SELECT cr.client_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+                $crq2->execute([$contractId]); $cid2 = $crq2->fetchColumn();
+                $cUid2 = $cid2 ? notif_get_user_id_by_client($pdo, (int)$cid2) : null;
+                if ($cUid2) notif_create($pdo, $officeId, $cUid2, 'contract', 'ทนายส่งคำขอแก้ไขสัญญา', 'สัญญา #'.$contractId.' กรุณาตรวจสอบ', '/pages/my_cases.php', 'contract', $contractId);
+                audit_log($pdo, $officeId, $userId, 'update', 'contract', $contractId, 'ทนายตีกลับสัญญา #'.$contractId);
                 $success = '🔄 ส่งคำขอแก้ไขสัญญาแล้ว รอลูกความตอบกลับ';
             }
         }
@@ -120,12 +133,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         negotiated_at          = NOW()
                     WHERE contract_id = ?
                 ")->execute([$rejectReason, $contractId]);
-                // อัปเดต case_request กลับเป็น pending ให้ลูกความหาทนายใหม่ได้
                 $pdo->prepare("
                     UPDATE case_requests SET status = 'rejected',
                         reject_reason = CONCAT('ทนายปฏิเสธสัญญา: ', ?)
                     WHERE request_id = (SELECT request_id FROM contracts WHERE contract_id = ?)
                 ")->execute([$rejectReason, $contractId]);
+                $crq3 = $pdo->prepare("SELECT cr.client_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+                $crq3->execute([$contractId]); $cid3 = $crq3->fetchColumn();
+                $cUid3 = $cid3 ? notif_get_user_id_by_client($pdo, (int)$cid3) : null;
+                if ($cUid3) notif_create($pdo, $officeId, $cUid3, 'contract', 'ทนายปฏิเสธสัญญา', 'สัญญา #'.$contractId.' ถูกปฏิเสธ', '/pages/my_cases.php', 'contract', $contractId);
+                audit_log($pdo, $officeId, $userId, 'reject', 'contract', $contractId, 'ทนายปฏิเสธสัญญา #'.$contractId);
                 $success = '❌ ปฏิเสธสัญญาแล้ว';
             }
         }
@@ -152,6 +169,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     negotiated_at          = NOW()
                 WHERE contract_id = ?
             ")->execute([$finalFee, $contractId]);
+            $crq4 = $pdo->prepare("SELECT cr.client_id FROM contracts c JOIN case_requests cr ON c.request_id=cr.request_id WHERE c.contract_id=?");
+            $crq4->execute([$contractId]); $cid4 = $crq4->fetchColumn();
+            $cUid4 = $cid4 ? notif_get_user_id_by_client($pdo, (int)$cid4) : null;
+            if ($cUid4) notif_create($pdo, $officeId, $cUid4, 'contract', 'สัญญาได้รับการยืนยันสุดท้าย', 'สัญญา #'.$contractId.' ถูกยืนยันแล้ว', '/pages/my_cases.php', 'contract', $contractId);
+            audit_log($pdo, $officeId, $userId, 'approve', 'contract', $contractId, 'ยืนยันสัญญาสุดท้าย #'.$contractId);
             $success = '🔒 ยืนยันสัญญาสุดท้ายแล้ว';
         }
     }
@@ -184,6 +206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 WHERE request_id=(SELECT request_id FROM contracts WHERE contract_id=?)
                   AND status NOT IN ('rejected','expired')
             ")->execute([$note, $contractId]);
+            audit_log($pdo, $officeId, $userId, 'delete', 'contract', $contractId, 'Admin ปิดสัญญา #'.$contractId.': '.$note);
             if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['ok'=>true,'msg'=>'ปิดสัญญาเรียบร้อยแล้ว']); exit; }
         }
     }

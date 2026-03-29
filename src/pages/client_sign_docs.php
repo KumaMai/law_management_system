@@ -5,6 +5,8 @@ require_once '../config/db.php';
 require_once '../config/auth.php';
 require_once '../config/csrf_helper.php';
 require_once '../config/file_upload_helper.php';
+require_once '../config/notification_helper.php';
+require_once '../config/activity_log_helper.php';
 requireLogin();
 
 $pdo      = getDB();
@@ -73,6 +75,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'uploa
         INSERT INTO client_sign_docs (request_id, office_id, uploaded_by, doc_type, doc_title, description, file_path, due_date)
         VALUES (?,?,?,?,?,?,?,?)
     ")->execute([$requestId, $officeId, $userId, $docType, $docTitle, $desc, $filename, $dueDate]);
+    $newDocId = (int)$pdo->lastInsertId();
+
+    // แจ้งเตือนลูกความ
+    $crClient = $pdo->prepare("SELECT client_id FROM case_requests WHERE request_id=?");
+    $crClient->execute([$requestId]);
+    $cid = $crClient->fetchColumn();
+    $cUid = $cid ? notif_get_user_id_by_client($pdo, (int)$cid) : null;
+    if ($cUid) notif_create($pdo, $officeId, $cUid, 'sign_doc', 'มีเอกสารให้เซ็นใหม่', $docTitle, '/pages/client_sign_docs.php', 'sign_doc', $newDocId);
+    audit_log($pdo, $officeId, $userId, 'upload', 'sign_doc', $newDocId, 'อัปโหลดเอกสารเซ็น: '.$docTitle);
 
     header('Location: /pages/client_sign_docs.php?uploaded=1&rid='.$requestId); exit;
 }
@@ -97,6 +108,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'ackno
     if ($chk->fetch()) {
         $pdo->prepare("UPDATE client_sign_docs SET status='acknowledged', client_note=?, ack_at=NOW() WHERE doc_id=?")
             ->execute([$note, $docId]);
+        // แจ้งทนาย
+        $docInfo = $pdo->prepare("SELECT d.uploaded_by, d.doc_title FROM client_sign_docs d WHERE d.doc_id=?");
+        $docInfo->execute([$docId]); $docInfo = $docInfo->fetch();
+        if ($docInfo) notif_create($pdo, $officeId, (int)$docInfo['uploaded_by'], 'sign_doc', 'ลูกความรับทราบเอกสาร', $docInfo['doc_title'], '/pages/client_sign_docs.php', 'sign_doc', $docId);
+        audit_log($pdo, $officeId, $userId, 'update', 'sign_doc', $docId, 'ลูกความรับทราบเอกสาร #'.$docId);
     }
     header('Location: /pages/client_sign_docs.php?acked=1'); exit;
 }

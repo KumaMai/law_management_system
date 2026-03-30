@@ -44,6 +44,7 @@ law_management_system/
 │   ├── php/Dockerfile + init-hash.sh
 │   └── mysql/
 │       ├── init.sql                  ← Schema v4.5 ครบ 20 ตาราง (รวม migrations)
+│       └── new_tables.sql            ← +4 ตาราง: notifications, activity_logs, chat_conversations, chat_messages
 │       └── migrations/               ← archived
 └── src/                              ← mount → /var/www/html ใน container
     ├── index.php
@@ -51,7 +52,7 @@ law_management_system/
     │   ├── db.php / auth.php / csrf_helper.php
     │   └── file_upload_helper.php    ← validateUpload() + MIME constants
     ├── includes/ header.php footer.php
-    ├── pages/  (26 หน้า — ดูตารางด้านล่าง)
+    ├── pages/  (29 หน้า — ดูตารางด้านล่าง)
     └── uploads/ contracts/ case_docs/ summaries/
                  sign_docs/ lawyer_photos/ client_photos/
                  payment_slips/ qr_codes/
@@ -59,7 +60,7 @@ law_management_system/
 
 ---
 
-## หน้าทั้งหมด (26 หน้า)
+## หน้าทั้งหมด (29 หน้า)
 
 ### Auth
 | หน้า | คำอธิบาย |
@@ -113,6 +114,13 @@ law_management_system/
 | dashboard.php | ทุก role (widget ต่างกัน) |
 | Profile.php | ทุก role (read-only) |
 
+### ระบบสนับสนุน ⭐ ใหม่
+| หน้า | ใช้ได้กับ |
+|---|---|
+| notifications.php | ทุก role — ดู/อ่านแจ้งเตือน, dropdown real-time, mark as read |
+| activity_log.php | Admin เท่านั้น — ดู Audit Trail ทุก action, filter ตาม user/วันที่/ประเภท, pagination |
+| chat.php | ทนาย/ลูกความ (Admin ถูก redirect) — แชทผูกกับคดี, ส่งข้อความ real-time via AJAX |
+
 ---
 
 ## Flow 15 ขั้นตอน
@@ -161,7 +169,7 @@ postponement_requests.status:  pending → approved / rejected ⭐ ใหม่
 
 ---
 
-## Database (20 ตาราง)
+## Database (24 ตาราง)
 
 | กลุ่ม | ตาราง |
 |---|---|
@@ -173,6 +181,9 @@ postponement_requests.status:  pending → approved / rejected ⭐ ใหม่
 | Documents | case_documents, case_summary_docs, client_sign_docs |
 | Office | announcements, lawyer_reviews, profile_change_requests |
 | Reference | courts |
+| Notifications ⭐ | notifications |
+| Audit ⭐ | activity_logs |
+| Chat ⭐ | chat_conversations, chat_messages |
 
 ### Schema Changes (v4.5)
 | ตาราง | การเปลี่ยนแปลง |
@@ -181,6 +192,10 @@ postponement_requests.status:  pending → approved / rejected ⭐ ใหม่
 | `court_hearings` | เพิ่ม `case_number` (กรอกตอนนัดขึ้นศาลครั้งแรก) |
 | `verdict_appointments` | ⭐ ตารางใหม่ — นัดวันฟังคำพิพากษา |
 | `postponement_requests` | ⭐ ตารางใหม่ — คำขอเลื่อนวันนัดจากลูกความ |
+| `notifications` | ⭐ ตารางใหม่ — แจ้งเตือนผู้ใช้ (`type`, `title`, `body`, `link`, `ref_type`, `ref_id`, `is_read`) CASCADE delete ตาม user/office |
+| `activity_logs` | ⭐ ตารางใหม่ — Audit Trail (`action`, `entity_type`, `entity_id`, `old_value` JSON, `new_value` JSON, `ip_address`, `user_agent`) |
+| `chat_conversations` | ⭐ ตารางใหม่ — ห้องสนทนาผูกกับ `request_id` (1 คดี = 1 ห้อง) |
+| `chat_messages` | ⭐ ตารางใหม่ — ข้อความแชท (`sender_user_id`, `message`, `is_read`) |
 
 **Columns พิเศษใน contracts:**
 `contract_review_status` · `negotiation_status` (DEFAULT 'accepted') · `negotiated_at` · `fee_amount` · `proposed_fee` · `lawyer_note` · `client_response`
@@ -213,16 +228,39 @@ postponement_requests.status:  pending → approved / rejected ⭐ ใหม่
 ## Changelog
 
 ### v4.5 (March 2026)
-- **ใหม่:** `verdict_appointments.php` — หน้านัดวันฟังคำพิพากษา (Admin/ทนาย) พร้อม countdown + เลื่อน/ยกเลิก
-- **ใหม่:** `my_cases.php` — Countdown นับถอยหลังวันนัดยื่นฟ้อง + ขอเลื่อนวันนัด (ทั้งยื่นฟ้องและขึ้นศาล)
-- **ใหม่:** `users.php` — ปุ่มลบผู้ใช้ (lawyer/client, block ถ้ามีคดี active)
-- **Schema:** `filings` — ลบ `case_number`, เปลี่ยน `filing_date` → `scheduled_filing_date`
-- **Schema:** `court_hearings` — เพิ่ม `case_number` (กรอกตอนนัดขึ้นศาล)
-- **Schema:** เพิ่มตาราง `verdict_appointments` และ `postponement_requests`
-- **Bug fix:** `filings.php` — เปลี่ยนชื่อหน้าเป็น "นัดยื่นฟ้อง" ลบช่องเลขคดีออก
-- **Bug fix:** `hearings.php` — เพิ่มช่องกรอกเลขคดีในฟอร์มเพิ่มนัด
-- **Bug fix:** `register.php` — ใช้ Transaction ป้องกัน INSERT users สำเร็จแต่ client_profiles ล้มเหลว
-- **Bug fix:** ทุก onclick ที่ใช้ `json_encode` กับชื่อคน — เปลี่ยนจาก `"..."` เป็น `'...'` ป้องกัน HTML attribute แตก (`lawyers.php`, `clients.php`, `users.php`, `courts.php`, `contracts.php`, `case_requests.php`, `filings.php`)
+
+#### ✨ Features เพิ่มใหม่
+
+| หน้า / ส่วน | รายละเอียด |
+|---|---|
+| `verdict_appointments.php` ⭐ | หน้าใหม่สำหรับ Admin/ทนาย — เพิ่ม/แก้ไขนัดวันฟังคำพิพากษา, countdown นับถอยหลัง, เปลี่ยนสถานะ (scheduled / completed / postponed / cancelled), บันทึก audit log ทุก action |
+| `my_cases.php` ⭐ | อัปเกรดหน้าลูกความ — เพิ่ม countdown นับถอยหลังวันนัดยื่นฟ้อง + วันขึ้นศาล, ปุ่มขอเลื่อนวันนัด (ทั้ง filing และ hearing), ระบบตรวจ duplicate request (ป้องกันส่งซ้ำถ้ายัง pending อยู่) |
+| `users.php` | เพิ่มปุ่ม 🗑️ ลบบัญชีผู้ใช้ — รองรับ lawyer/client เท่านั้น, block อัตโนมัติถ้ายังมีคดี active, ป้องกันลบบัญชีตัวเอง |
+| `notifications.php` ⭐ | หน้าใหม่ทุก role — ดู/อ่านแจ้งเตือน, dropdown real-time ดึง 10 รายการล่าสุดผ่าน AJAX, mark as read, นับ unread badge |
+| `activity_log.php` ⭐ | หน้าใหม่ Admin เท่านั้น — Audit Trail ทุก action ในระบบ, filter ตาม user/action/entity/วันที่, pagination 30 รายการ/หน้า |
+| `chat.php` ⭐ | หน้าใหม่สำหรับทนาย/ลูกความ — แชทผูกกับคดี (1 คดี = 1 ห้องสนทนา), ส่ง-รับข้อความผ่าน AJAX, Admin ถูก redirect ออกอัตโนมัติ |
+
+#### 🗄️ Schema Changes
+
+| ตาราง | การเปลี่ยนแปลง |
+|---|---|
+| `verdict_appointments` | ⭐ ตารางใหม่ — เก็บนัดวันฟังคำพิพากษา (`filing_id`, `scheduled_date`, `scheduled_time`, `status`, `note`, `created_by`) |
+| `postponement_requests` | ⭐ ตารางใหม่ — เก็บคำขอเลื่อนวันนัดจากลูกความ (`request_type`: filing/hearing, `reference_id`, `reason`, `requested_date`, `status`) |
+| `notifications` | ⭐ ตารางใหม่ — แจ้งเตือนผู้ใช้ (`type`, `title`, `body`, `link`, `ref_type`, `ref_id`, `is_read`) CASCADE delete ตาม user/office |
+| `activity_logs` | ⭐ ตารางใหม่ — Audit Trail (`action`, `entity_type`, `entity_id`, `old_value` JSON, `new_value` JSON, `ip_address`, `user_agent`) |
+| `chat_conversations` | ⭐ ตารางใหม่ — ห้องสนทนาผูกกับ `request_id` (UNIQUE — 1 คดี = 1 ห้อง) CASCADE delete ตาม office/request/user |
+| `chat_messages` | ⭐ ตารางใหม่ — ข้อความแชท (`conversation_id`, `sender_user_id`, `message`, `is_read`) |
+| `filings` | ลบ column `case_number` + `uq_case_number` key ออก, เปลี่ยนชื่อ `filing_date` → `scheduled_filing_date` เพื่อให้ชัดเจนว่าเป็น "วันนัด" ไม่ใช่วันที่ยื่นจริง |
+| `court_hearings` | เพิ่ม column `case_number` — กรอกตอนนัดขึ้นศาลครั้งแรก (หลังได้รับเลขคดีจากศาลแล้ว) |
+
+#### 🐛 Bug Fixes
+
+| ไฟล์ | ปัญหา | วิธีแก้ |
+|---|---|---|
+| `filings.php` | หน้ายังแสดงชื่อเก่าและมีช่อง "เลขคดี" ที่ถูกย้ายออกจาก schema แล้ว | เปลี่ยนชื่อหน้าเป็น "นัดยื่นฟ้อง" และลบช่อง `case_number` ออกจากฟอร์ม |
+| `hearings.php` | ฟอร์มเพิ่มนัดขึ้นศาลไม่มีช่องกรอกเลขคดี ทั้งที่ `case_number` ย้ายมาอยู่ที่ตารางนี้แล้ว | เพิ่มช่อง `case_number` ในฟอร์มเพิ่มนัดขึ้นศาล |
+| `register.php` | กรณี INSERT `users` สำเร็จแต่ INSERT `client_profiles` ล้มเหลว จะเกิด orphan record ใน users | ครอบทั้งสอง INSERT ด้วย Transaction — ถ้าขั้นตอนใดล้มเหลวจะ ROLLBACK ทั้งหมด |
+| `lawyers.php`, `clients.php`, `users.php`, `courts.php`, `contracts.php`, `case_requests.php`, `filings.php` | `onclick` ที่ใช้ `json_encode` กับชื่อคน/ข้อความภาษาไทย — เมื่อชื่อมีเครื่องหมาย `"` HTML attribute แตกทำให้ปุ่มทำงานผิดพลาด | เปลี่ยน attribute wrapper จาก `onclick="..."` เป็น `onclick='...'` (single quote) ครบทุกจุด |
 
 ### v4.4-hotfix (March 2026)
 - **Bug fix:** `payments.php`, `contracts.php`, `case_requests.php`, `filings.php` — เรียก `closeModal()` ก่อน Swal confirm เสมอ (z-index issue)

@@ -519,93 +519,349 @@ CREATE TABLE `chat_messages` (
 
 -- ============================================================
 -- VIEWS — สำหรับระบบค้นหาและลด JOIN ซ้ำซ้อนใน PHP
+-- (รวมจาก migration_search_views.sql)
 -- ============================================================
 
--- v_cases: รวม case_requests + contracts + ชื่อลูกความ/ทนาย
+-- ============================================================
+-- VIEW 1: v_cases
+-- ============================================================
+DROP VIEW IF EXISTS v_cases;
 CREATE VIEW v_cases AS
 SELECT
-    cr.request_id, cr.office_id, cr.client_id, cr.lawyer_id,
-    cr.detail AS case_detail, cr.request_date, cr.expire_date,
-    cr.status AS request_status, cr.reject_reason,
-    cr.created_at AS request_created_at,
-    c.contract_id, c.contract_date, c.fee_amount,
-    c.status AS contract_status, c.contract_review_status, c.payment_status,
-    c.lawyer_note, c.client_response, c.proposed_fee,
-    c.created_at AS contract_created_at,
-    cp.fname AS client_fname, cp.lname AS client_lname,
-    cp.citizen_id AS client_citizen_id, cp.phone AS client_phone,
-    cp.user_id AS client_user_id,
-    CONCAT(cp.fname,' ',cp.lname) AS client_name,
-    lp.fname AS lawyer_fname, lp.lname AS lawyer_lname,
-    lp.license_no AS lawyer_license, lp.specialization AS lawyer_specialization,
-    lp.phone AS lawyer_phone, lp.user_id AS lawyer_user_id,
-    lp.qr_code_file AS lawyer_qr,
-    CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
-FROM case_requests cr
-LEFT JOIN contracts c        ON c.request_id = cr.request_id
-LEFT JOIN client_profiles cp ON cp.client_id = cr.client_id
-LEFT JOIN lawyer_profiles lp ON lp.lawyer_id = cr.lawyer_id;
+    cr.request_id,
+    cr.office_id,
+    cr.client_id,
+    cr.lawyer_id,
+    cr.detail                              AS case_detail,
+    cr.request_date,
+    cr.expire_date,
+    cr.status                              AS request_status,
+    cr.reject_reason,
+    cr.created_at                          AS request_created_at,
 
--- v_filings: รวม filings + courts + ข้อมูลสัญญา/คู่ความ
+    c.contract_id,
+    c.contract_date,
+    c.fee_amount,
+    c.status                               AS contract_status,
+    c.contract_review_status,
+    c.payment_status,
+    c.lawyer_note,
+    c.client_response,
+    c.proposed_fee,
+    c.created_at                           AS contract_created_at,
+
+    cp.fname                               AS client_fname,
+    cp.lname                               AS client_lname,
+    cp.citizen_id                          AS client_citizen_id,
+    cp.phone                               AS client_phone,
+    cp.user_id                             AS client_user_id,
+    CONCAT(cp.fname, ' ', cp.lname)        AS client_name,
+
+    lp.fname                               AS lawyer_fname,
+    lp.lname                               AS lawyer_lname,
+    lp.license_no                          AS lawyer_license,
+    lp.specialization                      AS lawyer_specialization,
+    lp.phone                               AS lawyer_phone,
+    lp.user_id                             AS lawyer_user_id,
+    lp.qr_code_file                        AS lawyer_qr,
+    CONCAT(lp.fname, ' ', lp.lname)        AS lawyer_name
+
+FROM case_requests cr
+LEFT JOIN contracts c          ON c.request_id  = cr.request_id
+LEFT JOIN client_profiles cp   ON cp.client_id  = cr.client_id
+LEFT JOIN lawyer_profiles lp   ON lp.lawyer_id  = cr.lawyer_id;
+
+-- ============================================================
+-- VIEW 2: v_filings
+-- ============================================================
+DROP VIEW IF EXISTS v_filings;
 CREATE VIEW v_filings AS
 SELECT
-    f.filing_id, f.contract_id, f.court_id, f.charge,
-    f.scheduled_filing_date, f.created_at AS filing_created_at,
-    COALESCE(ct.court_name,'—') AS court_display, ct.court_type,
-    ct.location AS court_location,
-    cr.request_id, cr.office_id, cr.client_id, cr.lawyer_id,
-    cr.detail AS case_detail, con.contract_date, con.fee_amount,
-    CONCAT(cp.fname,' ',cp.lname) AS client_name,
-    CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
-FROM filings f
-LEFT JOIN courts ct          ON f.court_id    = ct.court_id
-JOIN contracts con           ON f.contract_id = con.contract_id
-JOIN case_requests cr        ON con.request_id= cr.request_id
-LEFT JOIN client_profiles cp ON cr.client_id  = cp.client_id
-LEFT JOIN lawyer_profiles lp ON cr.lawyer_id  = lp.lawyer_id;
+    f.filing_id,
+    f.contract_id,
+    f.court_id,
+    f.charge,
+    f.scheduled_filing_date,
+    f.created_at                           AS filing_created_at,
 
--- v_hearings: รวม court_hearings + filings + courts + ชื่อคู่ความ
+    COALESCE(ct.court_name, '—')           AS court_display,
+    ct.court_type,
+    ct.location                            AS court_location,
+
+    cr.request_id,
+    cr.office_id,
+    cr.client_id,
+    cr.lawyer_id,
+    cr.detail                              AS case_detail,
+
+    con.contract_date,
+    con.fee_amount,
+
+    CONCAT(cp.fname, ' ', cp.lname)        AS client_name,
+    CONCAT(lp.fname, ' ', lp.lname)        AS lawyer_name
+
+FROM filings f
+LEFT JOIN courts ct            ON f.court_id     = ct.court_id
+JOIN contracts con             ON f.contract_id  = con.contract_id
+JOIN case_requests cr          ON con.request_id = cr.request_id
+LEFT JOIN client_profiles cp   ON cr.client_id   = cp.client_id
+LEFT JOIN lawyer_profiles lp   ON cr.lawyer_id   = lp.lawyer_id;
+
+-- ============================================================
+-- VIEW 3: v_hearings
+-- ============================================================
+DROP VIEW IF EXISTS v_hearings;
 CREATE VIEW v_hearings AS
 SELECT
-    ch.hearing_id, ch.filing_id, ch.case_number, ch.hearing_date,
-    ch.hearing_time, ch.court_room, ch.hearing_round,
-    ch.status, ch.reminder_sent, ch.notes,
-    ch.updated_at, ch.created_at,
-    f.contract_id, f.charge, f.court_id,
-    ct.court_name, cr.request_id, cr.office_id,
-    cr.client_id, cr.lawyer_id,
-    CONCAT(cp.fname,' ',cp.lname) AS client_name,
-    CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
-FROM court_hearings ch
-JOIN filings f               ON ch.filing_id   = f.filing_id
-JOIN contracts con           ON f.contract_id  = con.contract_id
-JOIN case_requests cr        ON con.request_id = cr.request_id
-JOIN client_profiles cp      ON cr.client_id   = cp.client_id
-JOIN courts ct               ON f.court_id     = ct.court_id
-LEFT JOIN lawyer_profiles lp ON cr.lawyer_id   = lp.lawyer_id;
+    ch.hearing_id,
+    ch.filing_id,
+    ch.case_number,
+    ch.hearing_date,
+    ch.hearing_time,
+    ch.court_room,
+    ch.hearing_round,
+    ch.status,
+    ch.reminder_sent,
+    ch.notes,
+    ch.updated_at,
+    ch.created_at,
 
--- v_clients: รวม client_profiles + users
+    f.contract_id,
+    f.charge,
+    f.court_id,
+
+    ct.court_name,
+
+    cr.request_id,
+    cr.office_id,
+    cr.client_id,
+    cr.lawyer_id,
+
+    CONCAT(cp.fname, ' ', cp.lname)        AS client_name,
+    CONCAT(lp.fname, ' ', lp.lname)        AS lawyer_name
+
+FROM court_hearings ch
+JOIN filings f                 ON ch.filing_id    = f.filing_id
+JOIN contracts con             ON f.contract_id   = con.contract_id
+JOIN case_requests cr          ON con.request_id  = cr.request_id
+JOIN client_profiles cp        ON cr.client_id    = cp.client_id
+JOIN courts ct                 ON f.court_id      = ct.court_id
+LEFT JOIN lawyer_profiles lp   ON cr.lawyer_id    = lp.lawyer_id;
+
+-- ============================================================
+-- VIEW 4: v_clients
+-- ============================================================
+DROP VIEW IF EXISTS v_clients;
 CREATE VIEW v_clients AS
 SELECT
-    cp.client_id, cp.user_id, cp.fname, cp.lname,
-    cp.citizen_id, cp.phone, cp.address, cp.profile_photo, cp.created_at,
-    u.email, u.username, u.status AS user_status, u.office_id,
-    CONCAT(cp.fname,' ',cp.lname) AS full_name
+    cp.client_id,
+    cp.user_id,
+    cp.fname,
+    cp.lname,
+    cp.citizen_id,
+    cp.phone,
+    cp.address,
+    cp.profile_photo,
+    cp.created_at,
+    u.email,
+    u.username,
+    u.status                               AS user_status,
+    u.office_id,
+    CONCAT(cp.fname, ' ', cp.lname)        AS full_name
 FROM client_profiles cp
 JOIN users u ON cp.user_id = u.user_id;
 
--- v_lawyers: รวม lawyer_profiles + users + จำนวนคดี
+-- ============================================================
+-- VIEW 5: v_lawyers
+-- ============================================================
+DROP VIEW IF EXISTS v_lawyers;
 CREATE VIEW v_lawyers AS
 SELECT
-    lp.lawyer_id, lp.user_id, lp.fname, lp.lname,
-    lp.license_no, lp.license_exp, lp.specialization,
-    lp.phone, lp.status AS lawyer_status, lp.qr_code_file,
-    lp.profile_photo, lp.bio, lp.experience_yr, lp.education,
-    lp.avg_rating, lp.created_at,
-    u.email, u.username, u.status AS user_status, u.office_id,
-    CONCAT(lp.fname,' ',lp.lname) AS full_name,
+    lp.lawyer_id,
+    lp.user_id,
+    lp.fname,
+    lp.lname,
+    lp.license_no,
+    lp.license_exp,
+    lp.specialization,
+    lp.phone,
+    lp.status                              AS lawyer_status,
+    lp.qr_code_file,
+    lp.profile_photo,
+    lp.bio,
+    lp.experience_yr,
+    lp.education,
+    lp.avg_rating,
+    lp.created_at,
+    u.email,
+    u.username,
+    u.status                               AS user_status,
+    u.office_id,
+    CONCAT(lp.fname, ' ', lp.lname)        AS full_name,
     (SELECT COUNT(DISTINCT cr.request_id)
      FROM case_requests cr
-     WHERE cr.lawyer_id = lp.lawyer_id AND cr.status = 'approved') AS case_count
+     WHERE cr.lawyer_id = lp.lawyer_id
+       AND cr.status = 'approved')         AS case_count
 FROM lawyer_profiles lp
 JOIN users u ON lp.user_id = u.user_id;
+
+-- ============================================================
+-- STORED PROCEDURE: Global Search
+-- (รวมจาก migration_global_search.sql)
+-- ค้นหาข้ามทุกตาราง สำหรับ search bar หลักที่ header
+-- ============================================================
+
+DROP PROCEDURE IF EXISTS global_search;
+
+DELIMITER //
+CREATE PROCEDURE global_search(
+    IN p_office_id INT,
+    IN p_user_id   INT,
+    IN p_role      VARCHAR(20),
+    IN p_keyword   VARCHAR(255),
+    IN p_max       INT
+)
+BEGIN
+    DECLARE v_lawyer_id INT DEFAULT NULL;
+    DECLARE v_client_id INT DEFAULT NULL;
+    DECLARE v_kw VARCHAR(260);
+
+    SET v_kw  = CONCAT('%', p_keyword, '%');
+    SET p_max = IFNULL(p_max, 30);
+
+    -- หา profile ID ของ user
+    IF p_role = 'lawyer' THEN
+        SELECT lawyer_id INTO v_lawyer_id
+        FROM lawyer_profiles WHERE user_id = p_user_id LIMIT 1;
+    ELSEIF p_role = 'client' THEN
+        SELECT client_id INTO v_client_id
+        FROM client_profiles WHERE user_id = p_user_id LIMIT 1;
+    END IF;
+
+    -- ============ UNION ALL ข้ามหลายตาราง ============
+
+    (-- 1. ค้นลูกความ (Admin + Lawyer)
+     SELECT 'client'                              AS entity_type,
+            cp.client_id                           AS entity_id,
+            CONCAT(cp.fname, ' ', cp.lname)        AS title,
+            COALESCE(cp.citizen_id, cp.phone, '')   AS subtitle,
+            CONCAT('/pages/clients.php?search=', cp.fname) AS link
+     FROM client_profiles cp
+     JOIN users u ON cp.user_id = u.user_id
+     WHERE u.office_id = p_office_id
+       AND p_role IN ('admin', 'lawyer')
+       AND (cp.fname LIKE v_kw OR cp.lname LIKE v_kw
+            OR CONCAT(cp.fname, ' ', cp.lname) LIKE v_kw
+            OR cp.citizen_id LIKE v_kw OR cp.phone LIKE v_kw
+            OR u.email LIKE v_kw)
+     LIMIT 5)
+
+    UNION ALL
+
+    (-- 2. ค้นทนายความ (Admin + Client)
+     SELECT 'lawyer', lp.lawyer_id,
+            CONCAT(lp.fname, ' ', lp.lname),
+            COALESCE(lp.license_no, lp.specialization, ''),
+            CONCAT('/pages/lawyers.php?search=', lp.fname)
+     FROM lawyer_profiles lp
+     JOIN users u ON lp.user_id = u.user_id
+     WHERE u.office_id = p_office_id
+       AND p_role IN ('admin', 'client')
+       AND (lp.fname LIKE v_kw OR lp.lname LIKE v_kw
+            OR CONCAT(lp.fname, ' ', lp.lname) LIKE v_kw
+            OR lp.license_no LIKE v_kw OR lp.specialization LIKE v_kw
+            OR u.email LIKE v_kw)
+     LIMIT 5)
+
+    UNION ALL
+
+    (-- 3. ค้นคดี/สัญญา (ตาม role)
+     SELECT 'contract', c.contract_id,
+            CONCAT('สัญญา #', c.contract_id),
+            CONCAT(COALESCE(cp.fname,''), ' ', COALESCE(cp.lname,''),
+                   ' — ', COALESCE(lp.fname,''), ' ', COALESCE(lp.lname,'')),
+            CONCAT('/pages/contracts.php?search=', COALESCE(cp.fname,''))
+     FROM contracts c
+     JOIN case_requests cr ON c.request_id = cr.request_id
+     LEFT JOIN client_profiles cp ON cr.client_id = cp.client_id
+     LEFT JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
+     WHERE cr.office_id = p_office_id
+       AND (p_role = 'admin'
+            OR (p_role = 'lawyer'  AND cr.lawyer_id = v_lawyer_id)
+            OR (p_role = 'client'  AND cr.client_id = v_client_id))
+       AND (cr.detail LIKE v_kw
+            OR CONCAT(cp.fname, ' ', cp.lname) LIKE v_kw
+            OR CONCAT(lp.fname, ' ', lp.lname) LIKE v_kw
+            OR CAST(c.fee_amount AS CHAR) LIKE v_kw
+            OR c.lawyer_note LIKE v_kw)
+     LIMIT 5)
+
+    UNION ALL
+
+    (-- 4. ค้นนัดยื่นฟ้อง (Admin + Lawyer)
+     SELECT 'filing', f.filing_id,
+            CONCAT('ยื่นฟ้อง — ', COALESCE(f.charge, '(ไม่ระบุข้อหา)')),
+            CONCAT(COALESCE(ct.court_name, ''), ' ', COALESCE(f.scheduled_filing_date, '')),
+            CONCAT('/pages/filings.php?search=', COALESCE(f.charge,''))
+     FROM filings f
+     LEFT JOIN courts ct ON f.court_id = ct.court_id
+     JOIN contracts c ON f.contract_id = c.contract_id
+     JOIN case_requests cr ON c.request_id = cr.request_id
+     WHERE cr.office_id = p_office_id
+       AND (p_role IN ('admin', 'lawyer'))
+       AND (f.charge LIKE v_kw
+            OR ct.court_name LIKE v_kw
+            OR CAST(f.scheduled_filing_date AS CHAR) LIKE v_kw)
+     LIMIT 5)
+
+    UNION ALL
+
+    (-- 5. ค้นนัดขึ้นศาล (Admin + Lawyer)
+     SELECT 'hearing', ch.hearing_id,
+            CONCAT('นัดศาล ', COALESCE(ch.hearing_date,''), ' ครั้งที่ ', COALESCE(ch.hearing_round,'')),
+            CONCAT(COALESCE(ct.court_name,''), ' ห้อง ', COALESCE(ch.court_room,'')),
+            CONCAT('/pages/hearings.php?search=', COALESCE(ch.case_number,''))
+     FROM court_hearings ch
+     JOIN filings f ON ch.filing_id = f.filing_id
+     JOIN contracts c ON f.contract_id = c.contract_id
+     JOIN case_requests cr ON c.request_id = cr.request_id
+     JOIN courts ct ON f.court_id = ct.court_id
+     WHERE cr.office_id = p_office_id
+       AND (p_role IN ('admin', 'lawyer'))
+       AND (ch.case_number LIKE v_kw
+            OR ct.court_name LIKE v_kw
+            OR ch.court_room LIKE v_kw
+            OR ch.notes LIKE v_kw
+            OR f.charge LIKE v_kw)
+     LIMIT 5)
+
+    UNION ALL
+
+    (-- 6. ค้นศาล (Admin + Lawyer)
+     SELECT 'court', ct.court_id,
+            ct.court_name,
+            CONCAT(COALESCE(ct.court_type,''), ' — ', COALESCE(ct.location,'')),
+            CONCAT('/pages/courts.php')
+     FROM courts ct
+     WHERE p_role IN ('admin', 'lawyer')
+       AND (ct.court_name LIKE v_kw
+            OR ct.court_type LIKE v_kw
+            OR ct.location LIKE v_kw)
+     LIMIT 5)
+
+    UNION ALL
+
+    (-- 7. ค้นประกาศ (ทุก role)
+     SELECT 'announcement', a.ann_id,
+            a.title,
+            LEFT(COALESCE(a.body,''), 60),
+            '/pages/dashboard.php'
+     FROM announcements a
+     WHERE a.office_id = p_office_id
+       AND (a.title LIKE v_kw OR a.body LIKE v_kw)
+     LIMIT 3)
+
+    LIMIT p_max;
+
+END //
+DELIMITER ;

@@ -411,64 +411,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'void_
     header('Location: /pages/payments.php?contract_id='.$contractId.'&updated=1');
     exit;
 }
+// Fetch contracts for payments (ใช้ v_cases view + search)
+require_once '../config/search_helper.php';
+$search = trim($_GET['search'] ?? '');
+$searchCond = search_build_where($search, ['client_name', 'lawyer_name', 'case_detail']);
+
 if ($role === 'client') {
     $cp = $pdo->prepare("SELECT client_id FROM client_profiles WHERE user_id=?");
     $cp->execute([$userId]);
     $clientId = $cp->fetchColumn();
-    $contractsStmt = $pdo->prepare("
-        SELECT c.*, cr.detail,
-               CONCAT(cp.fname,' ',cp.lname) AS client_name,
-               CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
-               lp.phone AS lawyer_phone, lp.qr_code_file AS lawyer_qr,
-               COALESCE((SELECT SUM(amount) FROM payments WHERE contract_id=c.contract_id AND status='confirmed'),0) AS total_paid
-        FROM contracts c
-        JOIN case_requests cr ON c.request_id = cr.request_id
-        JOIN client_profiles cp ON cr.client_id = cp.client_id
-        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.client_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
-        AND c.status NOT IN ('rejected','cancelled','terminated')    
-        AND cr.status NOT IN ('rejected','cancelled')               
-        ORDER BY c.created_at DESC
-    ");
-    $contractsStmt->execute([$clientId]);
+    $params = [$clientId];
+    $roleWhere = "client_id = ?";
 } elseif ($role === 'lawyer') {
     $lp = $pdo->prepare("SELECT lawyer_id FROM lawyer_profiles WHERE user_id=?");
     $lp->execute([$userId]);
     $lawyerId = $lp->fetchColumn();
-    $contractsStmt = $pdo->prepare("
-        SELECT c.*, cr.detail,
-               CONCAT(cp.fname,' ',cp.lname) AS client_name,
-               CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
-               lp.phone AS lawyer_phone, lp.qr_code_file AS lawyer_qr,
-               COALESCE((SELECT SUM(amount) FROM payments WHERE contract_id=c.contract_id AND status='confirmed'),0) AS total_paid
-        FROM contracts c
-        JOIN case_requests cr ON c.request_id = cr.request_id
-        JOIN client_profiles cp ON cr.client_id = cp.client_id
-        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.lawyer_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
-        AND c.status NOT IN ('rejected','cancelled','terminated')    
-        AND cr.status NOT IN ('rejected','cancelled')               
-        ORDER BY c.created_at DESC
-    ");
-    $contractsStmt->execute([$lawyerId]);
+    $params = [$lawyerId];
+    $roleWhere = "lawyer_id = ?";
 } else {
-    $contractsStmt = $pdo->prepare("
-        SELECT c.*, cr.detail,
-               CONCAT(cp.fname,' ',cp.lname) AS client_name,
-               CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
-               lp.phone AS lawyer_phone, lp.qr_code_file AS lawyer_qr,
-               COALESCE((SELECT SUM(amount) FROM payments WHERE contract_id=c.contract_id AND status='confirmed'),0) AS total_paid
-        FROM contracts c
-        JOIN case_requests cr ON c.request_id = cr.request_id
-        JOIN client_profiles cp ON cr.client_id = cp.client_id
-        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.office_id=? AND c.contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
-        AND c.status NOT IN ('rejected','cancelled','terminated')    
-        AND cr.status NOT IN ('rejected','cancelled')       
-        ORDER BY c.created_at DESC
-    ");
-    $contractsStmt->execute([$officeId]);
+    $params = [$officeId];
+    $roleWhere = "office_id = ?";
 }
+
+$params = array_merge($params, $searchCond['params']);
+$contractsStmt = $pdo->prepare("
+    SELECT contract_id, request_id, contract_date, fee_amount,
+           contract_status AS status, contract_review_status, payment_status,
+           lawyer_note, client_response, proposed_fee,
+           contract_created_at AS created_at,
+           case_detail AS detail, client_name, lawyer_name,
+           lawyer_phone, lawyer_qr,
+           office_id, client_id, lawyer_id,
+           COALESCE((SELECT SUM(amount) FROM payments WHERE contract_id=v_cases.contract_id AND status='confirmed'),0) AS total_paid
+    FROM v_cases
+    WHERE contract_id IS NOT NULL AND {$roleWhere}
+      AND contract_review_status IN ('lawyer_accepted','negotiating','revision_requested','finalized')
+      AND contract_status NOT IN ('rejected','cancelled','terminated')
+      AND request_status NOT IN ('rejected','cancelled')
+    {$searchCond['sql']}
+    ORDER BY contract_created_at DESC
+");
+$contractsStmt->execute($params);
 $contracts = $contractsStmt->fetchAll();
 
 $selectedId       = (int)($_GET['contract_id'] ?? ($contracts[0]['contract_id'] ?? 0));
@@ -597,7 +580,10 @@ document.addEventListener('DOMContentLoaded', function() {
   <!-- ===== ซ้าย ===== -->
   <div class="contract-list">
     <div class="cl-head">💳 สัญญาที่ต้องชำระ <span style="opacity:.6;font-weight:400;font-size:.79rem;">(<?= count($contracts) ?>)</span></div>
-    <input type="text" class="cl-search" placeholder="ค้นหา..." onkeyup="filterList(this.value)">
+    <form method="GET" style="padding:0 12px 8px;">
+        <?php if (isset($_GET['contract_id'])): ?><input type="hidden" name="contract_id" value="<?= (int)$_GET['contract_id'] ?>"><?php endif; ?>
+        <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" class="cl-search" placeholder="ค้นหาสัญญา..." style="margin:0;">
+    </form>
     <div class="cl-items">
       <?php if (empty($contracts)): ?>
       <div style="text-align:center;padding:16px;color:var(--muted);font-size:.82rem;">ไม่มีสัญญาที่ยืนยันแล้ว</div>

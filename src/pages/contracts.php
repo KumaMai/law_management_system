@@ -277,56 +277,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ==============================
-// Fetch contracts
+// Fetch contracts (ใช้ v_cases view + search)
 // ==============================
-if ($role === 'admin') {
-    $stmt = $pdo->prepare("
-        SELECT c.*, cr.detail,
-               CONCAT(cp.fname,' ',cp.lname) AS client_name,
-               CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
-        FROM contracts c
-        JOIN case_requests cr ON c.request_id = cr.request_id
-        JOIN client_profiles cp ON cr.client_id = cp.client_id
-        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.office_id = ?
-        ORDER BY c.created_at DESC
-    ");
-    $stmt->execute([$officeId]);
+require_once '../config/search_helper.php';
+$search = trim($_GET['search'] ?? '');
+$searchCond = search_build_where($search, ['client_name', 'lawyer_name', 'case_detail', 'lawyer_note']);
 
+if ($role === 'admin') {
+    $params = [$officeId];
+    $roleWhere = "office_id = ?";
 } elseif ($role === 'lawyer') {
     $lp = $pdo->prepare("SELECT lawyer_id FROM lawyer_profiles WHERE user_id=?");
     $lp->execute([$userId]);
     $lawyerId = $lp->fetchColumn();
-    $stmt = $pdo->prepare("
-        SELECT c.*, cr.detail,
-               CONCAT(cp.fname,' ',cp.lname) AS client_name,
-               CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
-        FROM contracts c
-        JOIN case_requests cr ON c.request_id = cr.request_id
-        JOIN client_profiles cp ON cr.client_id = cp.client_id
-        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.lawyer_id = ?
-        ORDER BY c.created_at DESC
-    ");
-    $stmt->execute([$lawyerId]);
-
+    $params = [$lawyerId];
+    $roleWhere = "lawyer_id = ?";
 } else {
     $cp = $pdo->prepare("SELECT client_id FROM client_profiles WHERE user_id=?");
     $cp->execute([$userId]);
     $clientId = $cp->fetchColumn();
-    $stmt = $pdo->prepare("
-        SELECT c.*, cr.detail,
-               CONCAT(cp.fname,' ',cp.lname) AS client_name,
-               CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
-        FROM contracts c
-        JOIN case_requests cr ON c.request_id = cr.request_id
-        JOIN client_profiles cp ON cr.client_id = cp.client_id
-        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.client_id = ?
-        ORDER BY c.created_at DESC
-    ");
-    $stmt->execute([$clientId]);
+    $params = [$clientId];
+    $roleWhere = "client_id = ?";
 }
+
+$params = array_merge($params, $searchCond['params']);
+$stmt = $pdo->prepare("
+    SELECT contract_id, request_id, contract_date, fee_amount,
+           contract_status AS status, contract_review_status, payment_status,
+           lawyer_note, client_response, proposed_fee,
+           contract_created_at AS created_at,
+           case_detail AS detail, client_name, lawyer_name,
+           office_id, client_id, lawyer_id
+    FROM v_cases
+    WHERE contract_id IS NOT NULL AND {$roleWhere}
+    {$searchCond['sql']}
+    ORDER BY contract_created_at DESC
+");
+$stmt->execute($params);
 
 $contracts   = $stmt->fetchAll();
 $contractIds = array_column($contracts, 'contract_id');
@@ -388,10 +375,16 @@ include '../includes/header.php';
 </style>
 
 <div class="card">
-    <h2>📄 สัญญาว่าจ้าง</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+        <h2 style="margin:0;">📄 สัญญาว่าจ้าง</h2>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <?= search_render_box($search, 'ค้นหาสัญญา, ลูกความ, ทนาย...') ?>
+            <?= $search !== '' ? search_result_badge($search, count($contracts), count($contracts)) : '' ?>
+        </div>
+    </div>
 
     <?php if (empty($contracts)): ?>
-    <p style="color:#888;">ยังไม่มีสัญญาในระบบ</p>
+    <p style="color:#888;"><?= $search ? 'ไม่พบสัญญาที่ตรงกับคำค้นหา "'.htmlspecialchars($search).'"' : 'ยังไม่มีสัญญาในระบบ' ?></p>
     <?php endif; ?>
 
     <?php foreach ($contracts as $c):

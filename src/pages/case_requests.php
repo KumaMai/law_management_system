@@ -139,54 +139,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $role === 'admin') {
     exit;
 }
 
-// ── Fetch requests (เหมือนเดิม) ──
-if ($role === 'admin') {
-    $stmt = $pdo->prepare("
-        SELECT cr.*,
-               CONCAT(cp.fname,' ',cp.lname) AS client_name,
-               CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
-        FROM case_requests cr
-        JOIN client_profiles cp ON cr.client_id = cp.client_id
-        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.office_id = ?
-        ORDER BY cr.created_at DESC
-    ");
-    $stmt->execute([$officeId]);
+// ── Fetch requests (ใช้ v_cases view + search) ──
+require_once '../config/search_helper.php';
+$search = trim($_GET['search'] ?? '');
+$searchCond = search_build_where($search, ['client_name', 'lawyer_name', 'case_detail']);
 
+if ($role === 'admin') {
+    $params = [$officeId];
+    $roleWhere = "office_id = ?";
 } elseif ($role === 'lawyer') {
     $lp = $pdo->prepare("SELECT lawyer_id FROM lawyer_profiles WHERE user_id=?");
     $lp->execute([$_SESSION['user_id']]);
     $lawyerId = $lp->fetchColumn();
-
-    $stmt = $pdo->prepare("
-        SELECT cr.*, CONCAT(cp.fname,' ',cp.lname) AS client_name,
-               CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
-        FROM case_requests cr
-        JOIN client_profiles cp ON cr.client_id = cp.client_id
-        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.lawyer_id = ?
-        ORDER BY cr.created_at DESC
-    ");
-    $stmt->execute([$lawyerId]);
-
+    $params = [$lawyerId];
+    $roleWhere = "lawyer_id = ?";
 } else {
     $cp = $pdo->prepare("SELECT client_id FROM client_profiles WHERE user_id=?");
     $cp->execute([$_SESSION['user_id']]);
     $clientId = $cp->fetchColumn();
-
-    $stmt = $pdo->prepare("
-        SELECT cr.*, CONCAT(cp.fname,' ',cp.lname) AS client_name,
-               CONCAT(lp.fname,' ',lp.lname) AS lawyer_name
-        FROM case_requests cr
-        JOIN client_profiles cp ON cr.client_id = cp.client_id
-        JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-        WHERE cr.client_id = ?
-        ORDER BY cr.created_at DESC
-    ");
-    $stmt->execute([$clientId]);
+    $params = [$clientId];
+    $roleWhere = "client_id = ?";
 }
 
+$params = array_merge($params, $searchCond['params']);
+$stmt = $pdo->prepare("
+    SELECT request_id, office_id, client_id, lawyer_id,
+           case_detail AS detail, request_date, expire_date,
+           request_status AS status, reject_reason,
+           request_created_at AS created_at,
+           client_name, lawyer_name
+    FROM v_cases
+    WHERE {$roleWhere}
+    {$searchCond['sql']}
+    ORDER BY request_created_at DESC
+");
+$stmt->execute($params);
+
 $requests  = $stmt->fetchAll();
+$totalCount = count($requests);
 $pageTitle = 'คำขอว่าจ้างทนาย';
 include '../includes/header.php';
 ?>
@@ -198,7 +188,13 @@ $statusTH = ['pending'=>'รอดำเนินการ','approved'=>'อน�
 ?>
 
 <div class="card">
-    <h2>📋 คำขอว่าจ้างทนาย</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+        <h2 style="margin:0;">📋 คำขอว่าจ้างทนาย</h2>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <?= search_render_box($search, 'ค้นหาลูกความ, ทนาย, รายละเอียด...') ?>
+            <?= $search !== '' ? search_result_badge($search, count($requests), $totalCount) : '' ?>
+        </div>
+    </div>
 
     <?php if (empty($requests)): ?>
     <p style="color:#888;">ยังไม่มีคำขอในระบบ</p>

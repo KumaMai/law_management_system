@@ -164,14 +164,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Location: /pages/clients.php'); exit;
 }
 
+// Fetch clients (ใช้ v_clients view + search)
+require_once '../config/search_helper.php';
+$search = trim($_GET['search'] ?? '');
+$searchCond = search_build_where($search, ['full_name', 'fname', 'lname', 'citizen_id', 'phone', 'email', 'username']);
+
+$params = array_merge([$officeId], $searchCond['params']);
 $stmt = $pdo->prepare("
-    SELECT cp.*, u.email, u.username, u.status AS user_status
-    FROM client_profiles cp
-    JOIN users u ON cp.user_id = u.user_id
-    WHERE u.office_id = ?
-    ORDER BY cp.created_at DESC
+    SELECT client_id, user_id, fname, lname, citizen_id, phone,
+           address, profile_photo, created_at,
+           email, username, user_status, office_id, full_name
+    FROM v_clients
+    WHERE office_id = ?
+    {$searchCond['sql']}
+    ORDER BY created_at DESC
 ");
-$stmt->execute([$officeId]);
+$stmt->execute($params);
 $clients   = $stmt->fetchAll();
 $pageTitle = 'จัดการลูกความ';
 include '../includes/header.php';
@@ -196,11 +204,14 @@ include '../includes/header.php';
         <button onclick="openAddModal()" class="btn btn-primary">➕ เพิ่มลูกความ</button>
     </div>
     <div class="toolbar">
-        <div class="s-wrap"><input type="text" placeholder="ค้นหาชื่อ, username, บัตรประชาชน..." oninput="filterTable(this.value)"></div>
-        <span style="font-size:.82rem;color:#94a3b8;"><?= count($clients) ?> คน</span>
+        <?= search_render_box($search, 'ค้นหาชื่อ, username, บัตรประชาชน, เบอร์โทร...') ?>
+        <span style="font-size:.82rem;color:#94a3b8;">
+            <?= count($clients) ?> คน
+            <?= $search !== '' ? '(ค้นหา: "'.htmlspecialchars($search).'")' : '' ?>
+        </span>
     </div>
     <?php if (empty($clients)): ?>
-    <p style="color:#888;">ยังไม่มีลูกความในระบบ</p>
+    <p style="color:#888;"><?= $search ? 'ไม่พบลูกความที่ตรงกับ "'.htmlspecialchars($search).'"' : 'ยังไม่มีลูกความในระบบ' ?></p>
     <?php else: ?>
     <div class="table-wrap">
     <table id="clientTable">

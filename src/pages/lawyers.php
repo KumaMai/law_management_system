@@ -170,17 +170,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Location: /pages/lawyers.php'); exit;
 }
 
+// Fetch lawyers (ใช้ v_lawyers view + search)
+require_once '../config/search_helper.php';
+$search = trim($_GET['search'] ?? '');
+$searchCond = search_build_where($search, ['full_name', 'fname', 'lname', 'license_no', 'specialization', 'phone', 'email', 'username']);
+
+$params = array_merge([$officeId], $searchCond['params']);
 $stmt = $pdo->prepare("
-    SELECT lp.*, u.email, u.username, u.status AS user_status,
-           COUNT(DISTINCT cr.request_id) AS case_count
-    FROM lawyer_profiles lp
-    JOIN users u ON lp.user_id = u.user_id
-    LEFT JOIN case_requests cr ON cr.lawyer_id = lp.lawyer_id AND cr.status = 'approved'
-    WHERE u.office_id = ?
-    GROUP BY lp.lawyer_id
-    ORDER BY lp.created_at DESC
+    SELECT lawyer_id, user_id, fname, lname, license_no, license_exp,
+           specialization, phone, lawyer_status AS status, qr_code_file,
+           profile_photo, bio, experience_yr, education, avg_rating,
+           created_at, email, username, user_status, office_id,
+           full_name, case_count
+    FROM v_lawyers
+    WHERE office_id = ?
+    {$searchCond['sql']}
+    ORDER BY created_at DESC
 ");
-$stmt->execute([$officeId]);
+$stmt->execute($params);
 $lawyers   = $stmt->fetchAll();
 $pageTitle = 'จัดการทนายความ';
 include '../includes/header.php';
@@ -205,8 +212,11 @@ include '../includes/header.php';
         <button onclick="openAddModal()" class="btn btn-primary">➕ เพิ่มทนายความ</button>
     </div>
     <div class="toolbar">
-        <div class="s-wrap"><input type="text" placeholder="ค้นหาชื่อ, username, ใบอนุญาต..." oninput="filterTable(this.value)"></div>
-        <span style="font-size:.82rem;color:#94a3b8;"><?= count($lawyers) ?> คน</span>
+        <?= search_render_box($search, 'ค้นหาชื่อ, ใบอนุญาต, ความเชี่ยวชาญ...') ?>
+        <span style="font-size:.82rem;color:#94a3b8;">
+            <?= count($lawyers) ?> คน
+            <?= $search !== '' ? '(ค้นหา: "'.htmlspecialchars($search).'")' : '' ?>
+        </span>
     </div>
     <?php if (empty($lawyers)): ?>
     <p style="color:#888;">ยังไม่มีทนายความในระบบ</p>

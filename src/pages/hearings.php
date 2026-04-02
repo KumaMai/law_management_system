@@ -191,22 +191,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
     }
 }
 
-// Fetch hearings
-$where = $filingId ? "AND ch.filing_id = " . (int)$filingId : '';
-$stmt  = $pdo->prepare("
-    SELECT ch.*,
-           CONCAT(cp.fname,' ',cp.lname) AS client_name,
-           ct.court_name, cr.office_id
-    FROM court_hearings ch
-    JOIN filings f       ON ch.filing_id = f.filing_id
-    JOIN contracts con   ON f.contract_id = con.contract_id
-    JOIN case_requests cr ON con.request_id = cr.request_id
-    JOIN client_profiles cp ON cr.client_id = cp.client_id
-    JOIN courts ct       ON f.court_id = ct.court_id
-    WHERE cr.office_id = ? $where
-    ORDER BY ch.hearing_date ASC, ch.hearing_time ASC
+// Fetch hearings (ใช้ v_hearings view + search)
+require_once '../config/search_helper.php';
+$search = trim($_GET['search'] ?? '');
+$searchCond = search_build_where($search, ['client_name', 'lawyer_name', 'court_name', 'case_number', 'court_room', 'charge', 'notes']);
+
+$filingFilter = $filingId ? "AND filing_id = " . (int)$filingId : '';
+$params = array_merge([$officeId], $searchCond['params']);
+$stmt = $pdo->prepare("
+    SELECT *
+    FROM v_hearings
+    WHERE office_id = ? {$filingFilter}
+    {$searchCond['sql']}
+    ORDER BY hearing_date ASC, hearing_time ASC
 ");
-$stmt->execute([$officeId]);
+$stmt->execute($params);
 $hearings = $stmt->fetchAll();
 
 // ดึงคำขอเลื่อนนัดขึ้นศาล
@@ -370,11 +369,15 @@ setInterval(updateCountdowns, 1000);
 
 <!-- Header + ปุ่มเพิ่มนัด -->
 <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
         <h2 style="margin:0;">📅 ตารางนัดขึ้นศาล</h2>
-        <?php if (in_array($role, ['admin','lawyer'])): ?>
-        <button onclick="openHearingModal()" class="btn btn-primary">➕ เพิ่มนัดขึ้นศาล</button>
-        <?php endif; ?>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <?= search_render_box($search, 'ค้นหาเลขคดี, ศาล, ห้อง, ลูกความ...', $filingId ? ['filing_id'=>$filingId] : []) ?>
+            <?= $search !== '' ? search_result_badge($search, count($hearings), count($hearings)) : '' ?>
+            <?php if (in_array($role, ['admin','lawyer'])): ?>
+            <button onclick="openHearingModal()" class="btn btn-primary">➕ เพิ่มนัดขึ้นศาล</button>
+            <?php endif; ?>
+        </div>
     </div>
 
     <?php if (empty($hearings)): ?>

@@ -109,9 +109,30 @@ $_sb_cur = basename($_SERVER['PHP_SELF']);
 <button class="sb-hamburger" onclick="toggleMobileSidebar()">☰</button>
 <div class="sb-overlay" id="sbOverlay" onclick="toggleMobileSidebar()"></div>
 
-<!-- Topbar with bell notification -->
+<!-- Topbar with global search + bell notification -->
 <div class="topbar" id="topbar">
-    <div></div>
+    <div class="topbar-left">
+        <!-- Global Search Bar -->
+        <div class="gs-wrap" id="gsWrap">
+            <div class="gs-input-wrap">
+                <span class="gs-icon">🔍</span>
+                <input type="text" id="gsInput" class="gs-input"
+                       placeholder="ค้นหาทั่วระบบ... (ลูกความ, สัญญา, ศาล)"
+                       autocomplete="off" spellcheck="false">
+                <kbd class="gs-kbd" id="gsKbd">Ctrl+K</kbd>
+            </div>
+            <div class="gs-dropdown" id="gsDropdown">
+                <div class="gs-dd-empty" id="gsDdEmpty" style="display:none;">
+                    <span style="font-size:1.3rem;">🔍</span>
+                    <span>ไม่พบผลลัพธ์</span>
+                </div>
+                <div class="gs-dd-loading" id="gsDdLoading" style="display:none;">
+                    <span>กำลังค้นหา...</span>
+                </div>
+                <div class="gs-dd-results" id="gsDdResults"></div>
+            </div>
+        </div>
+    </div>
     <div class="topbar-right">
         <div class="notif-bell-wrap" id="notifBellWrap">
             <button class="notif-bell-btn" id="notifBellBtn" onclick="toggleNotifDropdown()">
@@ -391,7 +412,168 @@ window.addEventListener('load', function(){
     else if (role === 'client' && typeof openClientModal==='function') openClientModal();
 });
 <?php endif; ?>
+
+// ======== Global Search ========
+(function(){
+    var input    = document.getElementById('gsInput');
+    var wrap     = document.getElementById('gsWrap');
+    var dropdown = document.getElementById('gsDropdown');
+    var results  = document.getElementById('gsDdResults');
+    var loading  = document.getElementById('gsDdLoading');
+    var empty    = document.getElementById('gsDdEmpty');
+    var timer    = null;
+
+    if (!input) return;
+
+    function showDD() { dropdown.classList.add('show'); }
+    function hideDD() { dropdown.classList.remove('show'); }
+
+    input.addEventListener('input', function() {
+        var q = this.value.trim();
+        clearTimeout(timer);
+        if (q.length < 2) { hideDD(); return; }
+        loading.style.display = 'block';
+        empty.style.display   = 'none';
+        results.innerHTML     = '';
+        showDD();
+        timer = setTimeout(function(){ doSearch(q); }, 300);
+    });
+
+    input.addEventListener('focus', function() {
+        if (this.value.trim().length >= 2 && results.innerHTML) showDD();
+    });
+
+    function doSearch(q) {
+        fetch('/api/global_search.php?q=' + encodeURIComponent(q))
+        .then(function(r){ return r.json(); })
+        .then(function(data){
+            loading.style.display = 'none';
+            if (!data.ok || !data.grouped || Object.keys(data.grouped).length === 0) {
+                empty.style.display = 'block';
+                results.innerHTML   = '';
+                return;
+            }
+            empty.style.display = 'none';
+            var html = '';
+            for (var type in data.grouped) {
+                var g = data.grouped[type];
+                html += '<div class="gs-group">';
+                html += '<div class="gs-group-label">' + g.icon + ' ' + g.label + '</div>';
+                for (var i = 0; i < g.items.length; i++) {
+                    var it = g.items[i];
+                    html += '<a href="' + escHtml(it.link) + '" class="gs-item">';
+                    html += '<div class="gs-item-title">' + escHtml(it.title) + '</div>';
+                    if (it.subtitle) html += '<div class="gs-item-sub">' + escHtml(it.subtitle) + '</div>';
+                    html += '</a>';
+                }
+                html += '</div>';
+            }
+            html += '<div class="gs-dd-footer">พบ ' + data.count + ' ผลลัพธ์</div>';
+            results.innerHTML = html;
+        })
+        .catch(function(){
+            loading.style.display = 'none';
+            results.innerHTML = '<div style="padding:12px;color:#dc2626;text-align:center;">เกิดข้อผิดพลาด</div>';
+        });
+    }
+
+    function escHtml(s) {
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    // ปิด dropdown เมื่อคลิกข้างนอก
+    document.addEventListener('click', function(e) {
+        if (wrap && !wrap.contains(e.target)) hideDD();
+    });
+
+    // Ctrl+K shortcut
+    document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            input.focus();
+            input.select();
+        }
+        if (e.key === 'Escape' && document.activeElement === input) {
+            input.blur();
+            hideDD();
+        }
+    });
+})();
 </script>
+
+<style>
+/* ===== Global Search Styles ===== */
+.topbar-left { display:flex; align-items:center; flex:1; min-width:0; }
+
+.gs-wrap { position:relative; width:100%; max-width:420px; }
+.gs-input-wrap {
+    position:relative; display:flex; align-items:center;
+    background:#f1f5f9; border:1px solid transparent; border-radius:10px;
+    transition: all .2s;
+}
+.gs-input-wrap:focus-within {
+    background:#fff; border-color:#2d5a8a; box-shadow:0 0 0 3px rgba(45,90,138,.12);
+}
+.gs-icon { position:absolute; left:12px; color:#94a3b8; font-size:.9rem; pointer-events:none; }
+.gs-input {
+    width:100%; padding:8px 70px 8px 36px; border:none; background:transparent;
+    font-size:.87rem; outline:none; color:#1e293b; font-family:inherit;
+}
+.gs-input::placeholder { color:#94a3b8; }
+.gs-kbd {
+    position:absolute; right:8px;
+    padding:2px 7px; background:#e2e8f0; color:#64748b; border-radius:4px;
+    font-size:.68rem; font-family:monospace; font-weight:600; pointer-events:none;
+    border:1px solid #cbd5e1;
+}
+
+/* Dropdown */
+.gs-dropdown {
+    display:none; position:absolute; top:calc(100% + 6px); left:0; right:0;
+    background:#fff; border:1px solid #e2e8f0; border-radius:12px;
+    box-shadow:0 12px 40px rgba(0,0,0,.15); z-index:10001;
+    max-height:420px; overflow-y:auto;
+}
+.gs-dropdown.show { display:block; }
+.gs-dd-loading, .gs-dd-empty {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:24px; color:#94a3b8; font-size:.85rem; gap:6px;
+}
+
+/* Groups */
+.gs-group { border-bottom:1px solid #f1f5f9; }
+.gs-group:last-child { border-bottom:none; }
+.gs-group-label {
+    padding:8px 14px 4px; font-size:.72rem; font-weight:700;
+    color:#64748b; text-transform:uppercase; letter-spacing:.3px;
+}
+.gs-item {
+    display:block; padding:8px 14px; text-decoration:none; color:#1e293b;
+    transition:background .1s; cursor:pointer;
+}
+.gs-item:hover { background:#f8fafc; }
+.gs-item-title { font-size:.85rem; font-weight:600; }
+.gs-item-sub { font-size:.75rem; color:#94a3b8; margin-top:1px; }
+
+.gs-dd-footer {
+    padding:8px 14px; text-align:center; font-size:.75rem; color:#94a3b8;
+    border-top:1px solid #f1f5f9;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .gs-wrap { max-width:200px; }
+    .gs-kbd { display:none; }
+    .gs-input { padding-right:10px; }
+    .gs-dropdown { left:-40px; right:-80px; min-width:300px; }
+}
+@media (max-width: 480px) {
+    .gs-wrap { max-width:140px; }
+    .gs-dropdown { left:-60px; right:-100px; min-width:280px; }
+}
+</style>
 
 <?php endif; ?>
 <div class="sb-main" id="sbMain">

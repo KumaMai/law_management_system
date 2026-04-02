@@ -196,26 +196,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($role, ['admin','lawyer'])
     }
 }
 
-// Fetch filings
-$where = $contractId ? "AND f.contract_id = " . (int)$contractId : '';
-$stmt  = $pdo->prepare("
-    SELECT f.filing_id, f.contract_id, f.court_id, f.charge, f.scheduled_filing_date, f.created_at,
-           COALESCE(c.court_name, '—') AS court_display,
-           CONCAT(cp.fname,' ',cp.lname) AS client_name,
-           CONCAT(lp.fname,' ',lp.lname) AS lawyer_name,
-           cr.detail AS case_detail,
-           con.fee_amount, con.contract_date,
-           cr.office_id
-    FROM filings f
-    LEFT JOIN courts c    ON f.court_id    = c.court_id
-    JOIN contracts con    ON f.contract_id = con.contract_id
-    JOIN case_requests cr ON con.request_id = cr.request_id
-    JOIN client_profiles cp ON cr.client_id = cp.client_id
-    JOIN lawyer_profiles lp ON cr.lawyer_id = lp.lawyer_id
-    WHERE cr.office_id = ? $where
-    ORDER BY f.created_at DESC
+// Fetch filings (ใช้ v_filings view + search)
+require_once '../config/search_helper.php';
+$search = trim($_GET['search'] ?? '');
+$searchCond = search_build_where($search, ['client_name', 'lawyer_name', 'charge', 'court_display', 'case_detail']);
+
+$contractFilter = $contractId ? "AND contract_id = " . (int)$contractId : '';
+$params = array_merge([$officeId], $searchCond['params']);
+$stmt = $pdo->prepare("
+    SELECT filing_id, contract_id, court_id, charge,
+           scheduled_filing_date, filing_created_at AS created_at,
+           court_display, client_name, lawyer_name,
+           case_detail, fee_amount, contract_date, office_id
+    FROM v_filings
+    WHERE office_id = ? {$contractFilter}
+    {$searchCond['sql']}
+    ORDER BY filing_created_at DESC
 ");
-$stmt->execute([$officeId]);
+$stmt->execute($params);
 $filings = $stmt->fetchAll();
 
 // ดึงคำขอเลื่อนวันยื่นฟ้อง (สำหรับ admin/lawyer)
@@ -322,11 +320,15 @@ include '../includes/header.php';
 
 <!-- Header + ปุ่ม -->
 <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
         <h2 style="margin:0;">🏛️ นัดวันยื่นฟ้อง</h2>
-        <?php if (in_array($role, ['admin','lawyer'])): ?>
-        <button onclick="openFilingModal()" class="btn btn-primary">➕ เพิ่มนัดยื่นฟ้อง</button>
-        <?php endif; ?>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <?= search_render_box($search, 'ค้นหาศาล, ข้อหา, ลูกความ...', $contractId ? ['contract_id'=>$contractId] : []) ?>
+            <?= $search !== '' ? search_result_badge($search, count($filings), count($filings)) : '' ?>
+            <?php if (in_array($role, ['admin','lawyer'])): ?>
+            <button onclick="openFilingModal()" class="btn btn-primary">➕ เพิ่มนัดยื่นฟ้อง</button>
+            <?php endif; ?>
+        </div>
     </div>
 
     <?php if (empty($filings)): ?>

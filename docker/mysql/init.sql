@@ -7,6 +7,10 @@
 CREATE DATABASE IF NOT EXISTS law_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE law_system;
 
+-- ── ป้องกัน double-encoding: บังคับ client charset เป็น utf8mb4 ──
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+
 -- ============================================================
 -- TABLES
 -- ============================================================

@@ -22,7 +22,7 @@
 ```bash
 git clone <repo> && cd law_management_system
 docker-compose up -d
-# http://localhost:8080  (Web)
+# http://localhost:8181  (Web)
 # http://localhost:8081  (phpMyAdmin — DB: law_system)
 ```
 
@@ -198,7 +198,7 @@ postponement_requests.status:  pending → approved / rejected ⭐ ใหม่
 | `chat_messages` | ⭐ ตารางใหม่ — ข้อความแชท (`sender_user_id`, `message`, `is_read`) |
 
 **Columns พิเศษใน contracts:**
-`contract_review_status` · `negotiation_status` (DEFAULT 'accepted') · `negotiated_at` · `fee_amount` · `proposed_fee` · `lawyer_note` · `client_response`
+`contract_review_status` · `fee_amount` · `proposed_fee` · `lawyer_note` · `client_response`
 
 ---
 
@@ -226,6 +226,40 @@ postponement_requests.status:  pending → approved / rejected ⭐ ใหม่
 ---
 
 ## Changelog
+
+### v4.5.1 (March 2026)
+
+#### ✨ Features เพิ่มใหม่
+
+| หน้า / ส่วน | รายละเอียด |
+|---|---|
+| `filings.php` | เพิ่มส่วน "คำขอเลื่อนวันยื่นฟ้อง" — ทนาย/Admin ดูคำขอจากลูกความ, อนุมัติ/ปฏิเสธด้วย SweetAlert, บันทึก audit log + แจ้งเตือนลูกความ |
+| `hearings.php` | เพิ่มส่วน "คำขอเลื่อนนัดขึ้นศาล" — โครงสร้างเดียวกับ filings.php |
+| `my_cases.php` | แสดงวันนัดฟังคำพิพากษาพร้อม countdown ในกรอบสีเหลือง (เฉพาะเมื่อยังไม่มีผลคำพิพากษา) |
+| `calendar.php` | หน้าใหม่ — ปฏิทินรายเดือนแสดงนัดยื่นฟ้อง/ขึ้นศาล/พิพากษา |
+
+#### 🐛 Bug Fixes
+
+| ไฟล์ | ปัญหา | วิธีแก้ |
+|---|---|---|
+| `my_cases.php` | ลูกความกดขอเลื่อนวันแล้วขึ้น error "ไม่พบสัญญา" แต่คำขอยังถูกสร้าง | `request_postpone` handler อยู่หลัง contract check ที่ fail เพราะไม่มี `contract_id` → ย้ายขึ้นมาก่อน contract check และ exit AJAX ก่อน |
+| `my_cases.php`, `contracts.php` | อ้างอิง column `negotiation_status` / `negotiated_at` ที่ไม่มีอยู่จริง | ลบ references ออกทั้งหมด ใช้ `contract_review_status` แทน |
+| `activity_log.php`, `calendar.php` | หน้าเปล่า — ไม่ได้ include `csrf_helper.php` | เพิ่ม `require_once csrf_helper.php` ใน `header.php` แก้ได้ทุกหน้าพร้อมกัน |
+| `Profile.php` | หน้าเปล่า — สาเหตุเดียวกับข้อบน | แก้แล้วโดยการ include ใน header.php |
+| `chat.php` | ค้างที่ "กำลังโหลด..." ไม่แสดงข้อความ | `lastCount` เริ่มต้นที่ 0 เท่ากับ message count จริง → เปลี่ยนเป็น -1 |
+| `activity_log_helper.php` | LIMIT/OFFSET ส่งเป็น string ผ่าน `execute()` ทำให้ MySQL reject | ใช้ `bindValue($i, $val, PDO::PARAM_INT)` แทน |
+| `csrf_helper.php` | CSRF error แสดง `die()` หน้าตายตัว ผู้ใช้ติดค้าง | เปลี่ยนเป็น redirect กลับหน้าเดิม + regenerate token, AJAX คืน JSON error |
+| `Dockerfile` | `wkhtmltopdf` ไม่มีใน Debian Trixie apt repo | ดาวน์โหลด `.deb` จาก GitHub releases แทน + เพิ่ม Thai fonts |
+
+#### 🔧 Infrastructure
+
+| การเปลี่ยนแปลง | รายละเอียด |
+|---|---|
+| `docker-compose.yml` | ลบ deprecated `version` attribute, container names: `law_management_php/nginx/db/phpmyadmin` |
+| `docker/nginx/default.conf` | เปลี่ยน `fastcgi_pass` ให้ตรงชื่อ container ใหม่ |
+| `header.php` | เพิ่ม `require_once csrf_helper.php` ที่ต้นไฟล์ แก้ปัญหาหน้าเปล่าทุกหน้าพร้อมกัน |
+
+---
 
 ### v4.5 (March 2026)
 

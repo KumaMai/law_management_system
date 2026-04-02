@@ -707,10 +707,11 @@ JOIN users u ON lp.user_id = u.user_id;
 
 -- ============================================================
 -- STORED PROCEDURE: Global Search
--- (รวมจาก migration_global_search.sql)
+-- (รวมจาก 004_global_search_procedure.sql — UTF-8 safe)
 -- ค้นหาข้ามทุกตาราง สำหรับ search bar หลักที่ header
 -- ============================================================
 
+SET NAMES utf8mb4;
 DROP PROCEDURE IF EXISTS global_search;
 
 DELIMITER //

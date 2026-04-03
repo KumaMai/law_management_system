@@ -1,6 +1,6 @@
 # ⚖️ ระบบจัดการคดีความ (Law Case Management System)
 
-**สำนักงานพันชรรม | v4.5 — March 2026**
+**สำนักงานพันชรรม | v4.6 — April 2026**
 
 ---
 
@@ -43,14 +43,22 @@ law_management_system/
 │   ├── nginx/default.conf           ← Security headers + deny PHP in /uploads/
 │   ├── php/Dockerfile + init-hash.sh
 │   └── mysql/
-│       ├── init.sql                  ← Schema v4.5 ครบ 20 ตาราง (รวม migrations)
-│       └── new_tables.sql            ← +4 ตาราง: notifications, activity_logs, chat_conversations, chat_messages
+│       ├── init.sql                  ← Schema v4.0 ครบ 24 ตาราง + Stored Procedure (รวม migrations + SET NAMES utf8mb4)
+│       ├── migration_global_search.sql   ← Stored Procedure: global_search (archived)
+│       ├── migration_search_views.sql    ← Views: v_cases, v_filings, v_hearings, v_clients, v_lawyers
 │       └── migrations/               ← archived
 └── src/                              ← mount → /var/www/html ใน container
     ├── index.php
+    ├── api/
+    │   └── global_search.php         ← AJAX endpoint สำหรับ Global Search (GET ?q=keyword)
     ├── config/
     │   ├── db.php / auth.php / csrf_helper.php
-    │   └── file_upload_helper.php    ← validateUpload() + MIME constants
+    │   ├── file_upload_helper.php    ← validateUpload() + MIME constants
+    │   ├── search_helper.php         ← search_build_where() + search_render_box() สำหรับ per-page search
+    │   ├── notification_helper.php   ← สร้าง/ดึง notifications
+    │   ├── activity_log_helper.php   ← บันทึก audit log ทุก action
+    │   ├── calendar_helper.php       ← helper สำหรับ calendar.php
+    │   └── chat_helper.php           ← helper สำหรับ chat.php
     ├── includes/ header.php footer.php
     ├── pages/  (29 หน้า — ดูตารางด้านล่าง)
     └── uploads/ contracts/ case_docs/ summaries/
@@ -185,6 +193,15 @@ postponement_requests.status:  pending → approved / rejected ⭐ ใหม่
 | Audit ⭐ | activity_logs |
 | Chat ⭐ | chat_conversations, chat_messages |
 
+### MySQL Views (v4.6)
+| View | ใช้โดย | รวมข้อมูลจาก |
+|---|---|---|
+| `v_cases` ⭐ | case_requests.php, contracts.php, my_cases.php, payments.php | case_requests + contracts + client/lawyer profiles |
+| `v_filings` ⭐ | filings.php | filings + courts + contracts + คู่ความ |
+| `v_hearings` ⭐ | hearings.php | court_hearings + filings + courts + คู่ความ |
+| `v_clients` ⭐ | clients.php | client_profiles + users |
+| `v_lawyers` ⭐ | lawyers.php | lawyer_profiles + users + case_count |
+
 ### Schema Changes (v4.5)
 | ตาราง | การเปลี่ยนแปลง |
 |---|---|
@@ -226,6 +243,47 @@ postponement_requests.status:  pending → approved / rejected ⭐ ใหม่
 ---
 
 ## Changelog
+
+### v4.6 (April 2026)
+
+#### ✨ Features เพิ่มใหม่
+
+| หน้า / ส่วน | รายละเอียด |
+|---|---|
+| `header.php` + `api/global_search.php` ⭐ | **Global Search Bar** — ค้นหาข้ามทุกตารางในครั้งเดียว, debounce 300ms, พิมพ์ ≥ 2 ตัวอักษร, แสดง dropdown จัดกลุ่มตาม entity, shortcut Ctrl+K, แสดงผลตาม role อัตโนมัติ |
+| `config/search_helper.php` ⭐ | helper สำหรับ per-page search — `search_build_where()` สร้าง LIKE condition, `search_render_box()` render กล่องค้นหา, `search_result_badge()` แสดงจำนวนผลลัพธ์ |
+
+#### 🗄️ Schema / Database Changes
+
+| รายการ | รายละเอียด |
+|---|---|
+| `Stored Procedure: global_search` ⭐ | รับ `p_office_id`, `p_user_id`, `p_role`, `p_keyword`, `p_max` — UNION ALL ค้น 7 entity (client, lawyer, contract, filing, hearing, court, announcement) กรองตาม role และ office อัตโนมัติ |
+| `View: v_cases` ⭐ | pre-join case_requests + contracts + client/lawyer profiles |
+| `View: v_filings` ⭐ | pre-join filings + courts + contracts + คู่ความ |
+| `View: v_hearings` ⭐ | pre-join court_hearings + filings + courts + คู่ความ |
+| `View: v_clients` ⭐ | pre-join client_profiles + users |
+| `View: v_lawyers` ⭐ | pre-join lawyer_profiles + users + นับจำนวนคดี |
+| `init.sql` | รวม Stored Procedure `global_search` เข้าไปแล้ว ครบ 24 ตาราง + 5 views + 1 procedure |
+
+#### 🐛 Bug Fixes
+
+| ไฟล์ | ปัญหา | วิธีแก้ |
+|---|---|---|
+| `init.sql` + Stored Procedure | ค้นหาภาษาไทยใน Global Search ขึ้น "ไม่พบผลลัพธ์" ทั้งที่มีข้อมูลอยู่ เพราะ procedure ถูก compile ด้วย `character_set_client` ผิด | เพิ่ม `SET NAMES utf8mb4;` ก่อน `DROP PROCEDURE IF EXISTS global_search` ใน `init.sql` และ re-create procedure ใน container ที่รันอยู่ด้วย `docker exec` |
+
+#### 📝 หมายเหตุการ re-create procedure บน container ที่รันอยู่
+
+```bash
+# copy ไฟล์เข้า container
+docker cp docker/mysql/migrations/004_global_search_procedure.sql law_management_db:/tmp/004.sql
+
+# รัน procedure ใน container (Windows ใช้คำสั่งนี้)
+docker exec law_management_db mysql -u law_user -plaw_password law_system -e "source /tmp/004.sql"
+```
+
+> **หมายเหตุ:** บน Windows ห้ามใช้ `< /tmp/004.sql` (redirect) กับ `docker exec` เพราะ path จะถูกตีความเป็น Windows path — ใช้ `-e "source ..."` แทน
+
+---
 
 ### v4.5.1 (March 2026)
 
@@ -344,3 +402,6 @@ postponement_requests.status:  pending → approved / rejected ⭐ ใหม่
 - JS ที่ bind event บน element ในส่วน modal HTML ต้องใช้ `DOMContentLoaded` wrapper เสมอ
 - `register.php`: ต้องครอบ INSERT users + client_profiles ด้วย Transaction เสมอ
 - `case_number` ตอนนี้อยู่ใน `court_hearings` (กรอกตอนนัดขึ้นศาล) ไม่ใช่ `filings` แล้ว
+- **Global Search** ใช้ Stored Procedure `global_search` — ต้องมี `SET NAMES utf8mb4` ก่อน CREATE PROCEDURE เสมอ มิฉะนั้นภาษาไทยจะ match ไม่ได้
+- **Per-page search** ใช้ MySQL Views (`v_cases`, `v_filings` ฯลฯ) ร่วมกับ `search_build_where()` จาก `search_helper.php` — ไม่เกี่ยวกับ Global Search dropdown
+- `api/global_search.php` ต้อง `closeCursor()` หลัง `fetchAll()` เสมอเมื่อใช้ `CALL` procedure ผ่าน PDO
